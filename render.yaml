@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: malabon-pickleball-api
+    env: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:win
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      # Database connection is provided by environment variables
+      # Set these in the Render dashboard or use a secret file
+      - key: JWT_SECRET
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: CLIENT_URL
+        value: https://malabonpickleballers.com
+    autoDeploy: true
