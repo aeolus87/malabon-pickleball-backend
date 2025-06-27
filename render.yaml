@@ -18,5 +18,6 @@ services:
       - key: MONGODB_URI
         sync: false
       - key: CLIENT_URL
-        value: https://malabonpickleballers.com
+        value: https://malabon-pickleball-client.vercel.app
+
     autoDeploy: true

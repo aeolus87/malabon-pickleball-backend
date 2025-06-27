@@ -69,7 +69,8 @@ MONGODB_URI=your_production_mongodb_uri_here
 JWT_SECRET=your_production_jwt_secret_here
 
 # Client Configuration
-CLIENT_URL=https://malabonpickleballers.com
+CLIENT_URL=https://malabon-pickleball-client.vercel.app
+
 
 # Google OAuth (production)
 GOOGLE_CLIENT_ID=your_production_google_client_id_here

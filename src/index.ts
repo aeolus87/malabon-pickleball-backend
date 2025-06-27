@@ -63,12 +63,21 @@ app.get("/health", (req, res) => {
   });
 });
 
+// Warmup endpoint
+app.get("/warmup", (req, res) => {
+  res.status(200).json({ 
+    status: "ok",
+    message: "Server is warm and ready"
+  });
+});
+
 // CORS middleware
 const allowedOrigins = [
   process.env.CLIENT_URL || "http://localhost:5173",
   "http://localhost:3000",
   "https://malabonpickleballers.com",
   "https://www.malabonpickleballers.com",
+  "https://malabon-pickleball-client.vercel.app"
 ];
 
 app.use(
@@ -155,9 +164,12 @@ app.use(
 
 // Database connection
 connectDB().then(() => {
-  const PORT = process.env.PORT || 5000;
-  httpServer.listen(PORT, () => {
-    console.log(`🌐 Server running in ${NODE_ENV} mode on port ${PORT}`);
+  // Always use port 8080 in production for Fly.io compatibility
+  const PORT = process.env.NODE_ENV === 'production' ? 8080 : parseInt(process.env.PORT || "5000", 10);
+  const HOST = "0.0.0.0"; // Always bind to all network interfaces
+  
+  httpServer.listen(PORT, HOST, () => {
+    console.log(`🌐 Server running in ${NODE_ENV} mode on ${HOST}:${PORT}`);
     console.log(`🔌 Socket.IO server is running`);
     if (isDevelopment) {
       console.log(`📝 Development mode enabled - verbose logging active`);
