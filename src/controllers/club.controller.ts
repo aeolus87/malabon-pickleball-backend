@@ -91,11 +91,11 @@ export const clubController = {
       const user = getUser(req);
 
       const updatedUser = await clubService.addClubToUser(user.id, clubId);
-      
+
       if (!updatedUser) {
         return res.status(404).json({ error: "User or club not found" });
       }
-      
+
       // Emit club update for real-time sync
       if (updatedUser.clubs) {
         const addedClub = updatedUser.clubs.find((club: any) => club._id.toString() === clubId);
@@ -117,11 +117,11 @@ export const clubController = {
       const user = getUser(req);
 
       const updatedUser = await clubService.removeClubFromUser(user.id, clubId);
-      
+
       if (!updatedUser) {
         return res.status(404).json({ error: "User or club not found" });
       }
-      
+
       // Emit club update for real-time sync
       socketService.emitClubUpdate({ _id: clubId, memberLeft: user.id });
       

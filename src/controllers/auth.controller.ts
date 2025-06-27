@@ -99,7 +99,7 @@ export const authController = {
       if (!result) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
-      
+
       res.json(result);
     } catch (error) {
       console.error("Super admin login error:", error);

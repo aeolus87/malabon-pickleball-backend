@@ -5,6 +5,8 @@ import { generateToken } from "../utils/jwt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
 const REDIRECT_URI = `${CLIENT_URL}/auth/google/callback`;
 
@@ -12,46 +14,30 @@ const REDIRECT_URI = `${CLIENT_URL}/auth/google/callback`;
 const SUPER_ADMIN_USERNAME = process.env.SUPER_ADMIN_USERNAME || "masteradmin";
 const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || "malabon-master-2023";
 
-// Initialize OAuth client only when needed
-let client: OAuth2Client | null = null;
+if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+  throw new Error("Google OAuth credentials are not properly configured");
+}
 
-const getOAuthClient = () => {
-  if (!client) {
-    const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-    const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-
-    if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
-      throw new Error("Google OAuth credentials are not properly configured");
-    }
-
-    client = new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, REDIRECT_URI);
-  }
-  return client;
-};
+const client = new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, REDIRECT_URI);
 
 const SCOPES = [
-  "https://www.googleapis.com/auth/userinfo.email",
-  "https://www.googleapis.com/auth/userinfo.profile",
-];
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/userinfo.profile",
+    ];
 
 export const authService = {
   getGoogleAuthUrl(codeVerifier?: string) {
-    try {
-      const authUrl = getOAuthClient().generateAuthUrl({
-        access_type: "offline",
-        scope: SCOPES,
-        prompt: "consent",
-        ...(codeVerifier && {
-          code_challenge_method: "S256" as any,
-          code_challenge: this.generateCodeChallenge(codeVerifier),
-        }),
-      });
+    const authUrl = client.generateAuthUrl({
+      access_type: "offline",
+      scope: SCOPES,
+      prompt: "consent",
+      ...(codeVerifier && {
+      code_challenge_method: "S256" as any,
+        code_challenge: this.generateCodeChallenge(codeVerifier),
+      }),
+    });
 
-      return authUrl;
-    } catch (error) {
-      console.error("Failed to generate Google auth URL:", error);
-      throw error;
-    }
+    return authUrl;
   },
 
   generateCodeChallenge(verifier: string): string {
@@ -64,31 +50,26 @@ export const authService = {
   },
 
   async exchangeCodeForToken(code: string, codeVerifier?: string) {
-    try {
-      const tokenOptions: any = { code };
-      if (codeVerifier) {
-        tokenOptions.codeVerifier = codeVerifier;
-      }
-
-      const { tokens } = await getOAuthClient().getToken(tokenOptions);
-      const idToken = tokens.id_token;
-
-      if (!idToken) {
-        throw new Error("No ID token received from Google");
-      }
-
-      return this.handleGoogleSignIn(idToken);
-    } catch (error) {
-      console.error("Token exchange error:", error);
-      throw error;
+    const tokenOptions: any = { code };
+    if (codeVerifier) {
+      tokenOptions.codeVerifier = codeVerifier;
     }
+
+    const { tokens } = await client.getToken(tokenOptions);
+    const idToken = tokens.id_token;
+
+    if (!idToken) {
+      throw new Error("No ID token received from Google");
+    }
+
+    return this.handleGoogleSignIn(idToken);
   },
 
   async verifyGoogleToken(token: string) {
     try {
-      const ticket = await getOAuthClient().verifyIdToken({
+      const ticket = await client.verifyIdToken({
         idToken: token,
-        audience: process.env.GOOGLE_CLIENT_ID,
+        audience: GOOGLE_CLIENT_ID,
       });
 
       const payload = ticket.getPayload();
@@ -104,38 +85,38 @@ export const authService = {
   },
 
   async handleGoogleSignIn(token: string) {
-    const googleUserInfo = await this.verifyGoogleToken(token);
+      const googleUserInfo = await this.verifyGoogleToken(token);
 
     // Find or create user
-    let user = await User.findOne({ email: googleUserInfo.email });
+      let user = await User.findOne({ email: googleUserInfo.email });
 
-    if (!user) {
+      if (!user) {
       user = await User.create({
-        email: googleUserInfo.email,
-        displayName: googleUserInfo.name,
+            email: googleUserInfo.email,
+            displayName: googleUserInfo.name,
         photoURL: null, // Never use Google profile picture
-        isProfileComplete: false,
-      });
+            isProfileComplete: false,
+          });
     } else if (googleUserInfo.name && user.displayName !== googleUserInfo.name) {
       // Update display name if changed
-      user.displayName = googleUserInfo.name;
-      await user.save();
-    }
+        user.displayName = googleUserInfo.name;
+          await user.save();
+      }
 
-    return {
+      return {
       token: generateToken(user._id.toString()),
-      user: {
-        id: user._id,
-        email: user.email,
-        displayName: user.displayName,
-        photoURL: user.photoURL,
-        coverPhoto: user.coverPhoto,
-        isAdmin: user.isAdmin,
-        isSuperAdmin: user.isSuperAdmin,
-        isProfileComplete: user.isProfileComplete,
-        bio: user.bio,
-      },
-    };
+        user: {
+          id: user._id,
+          email: user.email,
+          displayName: user.displayName,
+          photoURL: user.photoURL,
+          coverPhoto: user.coverPhoto,
+          isAdmin: user.isAdmin,
+          isSuperAdmin: user.isSuperAdmin,
+          isProfileComplete: user.isProfileComplete,
+          bio: user.bio,
+        },
+      };
   },
 
   async logout(userId: string) {

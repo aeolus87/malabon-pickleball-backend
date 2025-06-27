@@ -35,8 +35,8 @@ export const userService = {
   },
 
   async checkUserExists(email: string) {
-    const exists = await User.exists({ email });
-    return !!exists;
+      const exists = await User.exists({ email });
+      return !!exists;
   },
 
   async findUserByEmail(email: string) {
@@ -107,11 +107,11 @@ export const userService = {
     photoURL?: string;
     isAdmin?: boolean;
   }) {
-    const newUser = new User({
-      ...userData,
-      isProfileComplete: false,
-    });
-    await newUser.save();
-    return newUser.toObject();
+      const newUser = new User({
+        ...userData,
+        isProfileComplete: false,
+      });
+      await newUser.save();
+      return newUser.toObject();
   },
 };

@@ -33,11 +33,11 @@ export const userController = {
     try {
       const user = getUser(req);
       const profile = await userService.getUserProfile(user.id);
-      
+
       if (!profile) {
         return res.status(404).json({ error: "Profile not found" });
       }
-      
+
       res.json(profile);
     } catch (error) {
       console.error("Error fetching user profile:", error);
@@ -116,7 +116,7 @@ export const userController = {
   async getAdminUsers(req: Request, res: Response) {
     try {
       const admins = await userService.getAdminUsers();
-      
+
       res.json(
         admins.map((admin) => ({
           id: admin._id,
