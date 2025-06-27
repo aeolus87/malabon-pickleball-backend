@@ -9,18 +9,21 @@ import authRoutes from "./routes/auth.routes";
 import venueRoutes from "./routes/venue.routes";
 import clubRoutes from "./routes/club.routes";
 import userRoutes from "./routes/user.routes";
-import contactRoutes from "./routes/contact.routes";
 import connectDB from "./utils/db";
 import { IUser } from "./types/express";
 import { initSocketService } from "./services/socket.service";
+import { ServerToClientEvents, ClientToServerEvents } from "./types/socket.types";
+
+// Environment configuration
+const NODE_ENV = process.env.NODE_ENV || "development";
+const isDevelopment = NODE_ENV === "development";
 
 // Load environment variables based on NODE_ENV
-const envFile =
-  process.env.NODE_ENV === "production"
-    ? ".env.production"
-    : ".env.development";
+const envFile = isDevelopment ? ".env.development" : ".env.production";
 
-console.log(`Loading environment from ${envFile}`);
+console.log(`🚀 Starting server in ${NODE_ENV} mode`);
+console.log(`📁 Loading environment from ${envFile}`);
+
 dotenv.config({ path: path.resolve(process.cwd(), envFile) });
 
 const app = express();
@@ -31,7 +34,7 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // Set up Socket.IO with CORS
-const io = new SocketIOServer(httpServer, {
+const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   cors: {
     origin: [
       process.env.CLIENT_URL || "http://localhost:5173",
@@ -52,7 +55,11 @@ initSocketService(io);
 
 // Health check endpoint for monitoring
 app.get("/health", (req, res) => {
-  res.status(200).json({ status: "ok", environment: process.env.NODE_ENV });
+  res.status(200).json({ 
+    status: "ok", 
+    environment: NODE_ENV,
+    isDevelopment
+  });
 });
 
 // CORS middleware
@@ -69,10 +76,7 @@ app.use(
       // Allow requests with no origin (like mobile apps or curl requests)
       if (!origin) return callback(null, true);
 
-      if (
-        allowedOrigins.indexOf(origin) !== -1 ||
-        process.env.NODE_ENV !== "production"
-      ) {
+      if (allowedOrigins.indexOf(origin) !== -1 || isDevelopment) {
         callback(null, true);
       } else {
         console.warn(`CORS blocked request from origin: ${origin}`);
@@ -84,11 +88,10 @@ app.use(
 );
 
 // Routes
-app.use("/api/auth", authRoutes);
+app.use("/auth", authRoutes);
 app.use("/api/venues", venueRoutes);
 app.use("/api/clubs", clubRoutes);
 app.use("/api/users", userRoutes);
-app.use("/api/contact", contactRoutes);
 
 // Socket.IO authentication middleware
 io.use((socket: any, next: any) => {
@@ -143,10 +146,7 @@ app.use(
     console.error("Server error:", err);
     res.status(500).json({
       error: "Server error",
-      message:
-        process.env.NODE_ENV === "production"
-          ? "An unexpected error occurred"
-          : err.message,
+      message: isDevelopment ? err.message : "An unexpected error occurred",
     });
   }
 );
@@ -155,12 +155,11 @@ app.use(
 connectDB().then(() => {
   const PORT = process.env.PORT || 5000;
   httpServer.listen(PORT, () => {
-    console.log(
-      `Server running in ${
-        process.env.NODE_ENV || "development"
-      } mode on port ${PORT}`
-    );
-    console.log(`Socket.IO server is running`);
+    console.log(`🌐 Server running in ${NODE_ENV} mode on port ${PORT}`);
+    console.log(`🔌 Socket.IO server is running`);
+    if (isDevelopment) {
+      console.log(`📝 Development mode enabled - verbose logging active`);
+    }
   });
 });
 

@@ -1,35 +1,26 @@
 // src/routes/venue.routes.ts
 import express from 'express';
 import { authenticateToken } from '../middleware/auth.middleware';
+import { requireAdmin, validateVenueId } from '../middleware/venue.middleware';
 import { venueController } from '../controllers/venue.controller';
 
 const router = express.Router();
 
-// Get all venues
-router.get('/', authenticateToken, venueController.getAllVenues);
+// Apply auth to all routes
+router.use(authenticateToken);
 
-// Create a new venue
-router.post('/', authenticateToken, venueController.createVenue);
+// Public routes (authenticated users)
+router.get('/', venueController.getAllVenues);
+router.post('/:id/attend', validateVenueId, venueController.attendVenue);
+router.post('/:id/cancel', validateVenueId, venueController.cancelAttendance);
+router.get('/:id/attendees', validateVenueId, venueController.getVenueAttendees);
 
-// Update venue status
-router.put('/:id/status', authenticateToken, venueController.updateVenueStatus);
-
-// Update venue photo
-router.put('/:id/photo', authenticateToken, venueController.updateVenuePhoto);
-
-// Delete venue
-router.delete('/:id', authenticateToken, venueController.deleteVenue);
-
-// Attend venue
-router.post('/:id/attend', authenticateToken, venueController.attendVenue);
-
-// Cancel attendance
-router.post('/:id/cancel', authenticateToken, venueController.cancelAttendance);
-
-// Remove all attendees
-router.post('/:id/remove-all-attendees', authenticateToken, venueController.removeAllAttendees);
-
-// Get venue attendees
-router.get('/:id/attendees', authenticateToken, venueController.getVenueAttendees);
+// Admin-only routes
+router.post('/', requireAdmin, venueController.createVenue);
+router.put('/:id/status', requireAdmin, validateVenueId, venueController.updateVenueStatus);
+router.put('/:id/photo', requireAdmin, validateVenueId, venueController.updateVenuePhoto);
+router.put('/:id', requireAdmin, validateVenueId, venueController.updateVenue);
+router.delete('/:id', requireAdmin, validateVenueId, venueController.deleteVenue);
+router.post('/:id/remove-all-attendees', requireAdmin, validateVenueId, venueController.removeAllAttendees);
 
 export default router;

@@ -1,21 +1,8 @@
 // src/controllers/club.controller.ts
 import { Request, Response } from "express";
 import { clubService } from "../services/club.service";
-
-// Update the AuthenticatedRequest interface to match your user object
-interface AuthenticatedRequest extends Request {
-  user: {
-    id: string;
-    email: string;
-    displayName: string | null;
-    photoURL: string | null;
-    coverPhoto: string | null;
-    isAdmin: boolean;
-    isSuperAdmin: boolean;
-    isProfileComplete: boolean;
-    bio: string | null;
-  };
-}
+import { socketService } from "../services/socket.service";
+import { getUser } from "../middleware/club.middleware";
 
 export const clubController = {
   async getAllClubs(req: Request, res: Response) {
@@ -33,9 +20,7 @@ export const clubController = {
       res.json(clubs);
     } catch (error) {
       console.error("Failed to fetch clubs with member count:", error);
-      res
-        .status(500)
-        .json({ error: "Failed to fetch clubs with member count" });
+      res.status(500).json({ error: "Failed to fetch clubs with member count" });
     }
   },
 
@@ -59,6 +44,11 @@ export const clubController = {
     try {
       const { clubId } = req.params;
       const members = await clubService.getClubMembers(clubId);
+      
+      if (!members) {
+        return res.status(404).json({ error: "Club not found" });
+      }
+      
       res.json(members);
     } catch (error) {
       console.error("Failed to fetch club members:", error);
@@ -69,18 +59,25 @@ export const clubController = {
   async addUserClubs(req: Request, res: Response) {
     try {
       const { clubIds } = req.body;
-      // Use the user from the authenticated request
-      const userId = (req as AuthenticatedRequest).user.id;
+      const user = getUser(req);
 
       if (!Array.isArray(clubIds)) {
         return res.status(400).json({ error: "clubIds must be an array" });
       }
 
-      console.log(`Adding clubs to user ${userId}:`, clubIds);
-      const updatedUser = await clubService.addClubsToUser(userId, clubIds);
-      console.log("User updated with clubs:", updatedUser);
+      const updatedUser = await clubService.addClubsToUser(user.id, clubIds);
 
-      // Return the updated user with populated club data
+      if (!updatedUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Emit club membership updates for real-time sync
+      if (updatedUser.clubs) {
+        updatedUser.clubs.forEach((club: any) => {
+          socketService.emitClubUpdate(club);
+        });
+      }
+
       res.json(updatedUser);
     } catch (error) {
       console.error("Failed to add clubs to user:", error);
@@ -91,14 +88,23 @@ export const clubController = {
   async joinClub(req: Request, res: Response) {
     try {
       const { clubId } = req.params;
-      const userId = (req as AuthenticatedRequest).user.id;
+      const user = getUser(req);
 
-      if (!clubId) {
-        return res.status(400).json({ error: "Club ID is required" });
+      const updatedUser = await clubService.addClubToUser(user.id, clubId);
+      
+      if (!updatedUser) {
+        return res.status(404).json({ error: "User or club not found" });
       }
-
-      const user = await clubService.addClubToUser(userId, clubId);
-      res.json(user);
+      
+      // Emit club update for real-time sync
+      if (updatedUser.clubs) {
+        const addedClub = updatedUser.clubs.find((club: any) => club._id.toString() === clubId);
+        if (addedClub) {
+          socketService.emitClubUpdate(addedClub);
+        }
+      }
+      
+      res.json(updatedUser);
     } catch (error) {
       console.error("Failed to join club:", error);
       res.status(500).json({ error: "Failed to join club" });
@@ -108,17 +114,37 @@ export const clubController = {
   async leaveClub(req: Request, res: Response) {
     try {
       const { clubId } = req.params;
-      const userId = (req as AuthenticatedRequest).user.id;
+      const user = getUser(req);
 
-      if (!clubId) {
-        return res.status(400).json({ error: "Club ID is required" });
+      const updatedUser = await clubService.removeClubFromUser(user.id, clubId);
+      
+      if (!updatedUser) {
+        return res.status(404).json({ error: "User or club not found" });
       }
-
-      const user = await clubService.removeClubFromUser(userId, clubId);
-      res.json(user);
+      
+      // Emit club update for real-time sync
+      socketService.emitClubUpdate({ _id: clubId, memberLeft: user.id });
+      
+      res.json(updatedUser);
     } catch (error) {
       console.error("Failed to leave club:", error);
       res.status(500).json({ error: "Failed to leave club" });
+    }
+  },
+
+  async getClubWithMembers(req: Request, res: Response) {
+    try {
+      const { clubId } = req.params;
+      const result = await clubService.getClubWithMembers(clubId);
+
+      if (!result) {
+        return res.status(404).json({ error: "Club not found" });
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error("Failed to fetch club with members:", error);
+      res.status(500).json({ error: "Failed to fetch club with members" });
     }
   },
 };

@@ -2,36 +2,23 @@
 import express from "express";
 import { clubController } from "../controllers/club.controller";
 import { authenticateToken } from "../middleware/auth.middleware";
+import { validateClubId } from "../middleware/club.middleware";
 
 const router = express.Router();
 
-// Get all clubs
-router.get("/", authenticateToken, clubController.getAllClubs);
+// Apply auth to all routes
+router.use(authenticateToken);
 
-// Get clubs with member counts
-router.get(
-  "/with-counts",
-  authenticateToken,
-  clubController.getClubsWithMemberCount
-);
+// Public club routes
+router.get("/", clubController.getAllClubs);
+router.get("/with-counts", clubController.getClubsWithMemberCount);
+router.get("/:clubId", validateClubId, clubController.getClubById);
+router.get("/:clubId/members", validateClubId, clubController.getClubMembers);
+router.get("/:clubId/with-members", validateClubId, clubController.getClubWithMembers);
 
-// Get specific club by ID
-router.get("/:clubId", authenticateToken, clubController.getClubById);
-
-// Get club members
-router.get(
-  "/:clubId/members",
-  authenticateToken,
-  clubController.getClubMembers
-);
-
-// Add clubs to user
-router.post("/user-clubs", authenticateToken, clubController.addUserClubs);
-
-// Join a club
-router.post("/:clubId/join", authenticateToken, clubController.joinClub);
-
-// Leave a club
-router.post("/:clubId/leave", authenticateToken, clubController.leaveClub);
+// User club management routes
+router.post("/user-clubs", clubController.addUserClubs);
+router.post("/:clubId/join", validateClubId, clubController.joinClub);
+router.post("/:clubId/leave", validateClubId, clubController.leaveClub);
 
 export default router;

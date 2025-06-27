@@ -4,25 +4,15 @@ import { venueService } from "../services/venue.service";
 import { socketService } from "../services/socket.service";
 import { IUser } from "../types/express";
 
-// Don't use this type directly in the route handlers
 interface AuthenticatedRequest extends Request {
   user: IUser;
 }
 
+const getUser = (req: Request): IUser => (req as AuthenticatedRequest).user;
+
 export const venueController = {
   async getAllVenues(req: Request, res: Response) {
     try {
-      // Add logging to see if this is triggering auth errors
-      console.log("getAllVenues: called", req.url);
-
-      // Get user from the request
-      const user = (req as AuthenticatedRequest).user;
-      console.log("getAllVenues: user", {
-        id: user.id,
-        email: user.email,
-        isAdmin: user.isAdmin,
-      });
-
       const venues = await venueService.getAllVenues();
       res.json(venues);
     } catch (error) {
@@ -33,18 +23,9 @@ export const venueController = {
 
   async createVenue(req: Request, res: Response) {
     try {
-      // Cast to AuthenticatedRequest only when accessing user
-      const user = (req as AuthenticatedRequest).user;
-
-      // You might want to check if the user is an admin here
-      if (!user.isAdmin) {
-        return res.status(403).json({ error: "Only admins can create venues" });
-      }
-
       const { name, status, photoURL } = req.body;
       const venue = await venueService.createVenue({ name, status, photoURL });
 
-      // Emit socket event for real-time updates
       socketService.emitVenueUpdate(venue);
 
       res.status(201).json(venue);
@@ -56,16 +37,6 @@ export const venueController = {
 
   async updateVenueStatus(req: Request, res: Response) {
     try {
-      // Cast to AuthenticatedRequest only when accessing user
-      const user = (req as AuthenticatedRequest).user;
-
-      // You might want to check if the user is an admin here
-      if (!user.isAdmin) {
-        return res
-          .status(403)
-          .json({ error: "Only admins can update venue status" });
-      }
-
       const { status } = req.body;
       const venue = await venueService.updateVenueStatus(req.params.id, status);
 
@@ -73,9 +44,7 @@ export const venueController = {
         return res.status(404).json({ error: "Venue not found" });
       }
 
-      // Emit socket event for real-time updates
       socketService.emitVenueUpdate(venue);
-
       res.json(venue);
     } catch (error) {
       console.error("Error updating venue status:", error);
@@ -85,20 +54,13 @@ export const venueController = {
 
   async updateVenue(req: Request, res: Response) {
     try {
-      // Cast to AuthenticatedRequest only when accessing user
-      const user = (req as AuthenticatedRequest).user;
-
-      // Check if the user is an admin
-      if (!user.isAdmin) {
-        return res.status(403).json({ error: "Only admins can update venues" });
-      }
-
       const venue = await venueService.updateVenue(req.params.id, req.body);
 
       if (!venue) {
         return res.status(404).json({ error: "Venue not found" });
       }
 
+      socketService.emitVenueUpdate(venue);
       res.json(venue);
     } catch (error) {
       console.error("Error updating venue:", error);
@@ -108,34 +70,19 @@ export const venueController = {
 
   async updateVenuePhoto(req: Request, res: Response) {
     try {
-      // Cast to AuthenticatedRequest only when accessing user
-      const user = (req as AuthenticatedRequest).user;
-
-      // Check if the user is an admin
-      if (!user.isAdmin) {
-        return res
-          .status(403)
-          .json({ error: "Only admins can update venue photos" });
-      }
-
       const { photoURL } = req.body;
 
       if (!photoURL) {
         return res.status(400).json({ error: "Photo URL is required" });
       }
 
-      const venue = await venueService.updateVenuePhoto(
-        req.params.id,
-        photoURL
-      );
+      const venue = await venueService.updateVenuePhoto(req.params.id, photoURL);
 
       if (!venue) {
         return res.status(404).json({ error: "Venue not found" });
       }
 
-      // Emit socket event for real-time updates
       socketService.emitVenueUpdate(venue);
-
       res.json(venue);
     } catch (error) {
       console.error("Error updating venue photo:", error);
@@ -145,23 +92,13 @@ export const venueController = {
 
   async deleteVenue(req: Request, res: Response) {
     try {
-      // Cast to AuthenticatedRequest only when accessing user
-      const user = (req as AuthenticatedRequest).user;
-
-      // You might want to check if the user is an admin here
-      if (!user.isAdmin) {
-        return res.status(403).json({ error: "Only admins can delete venues" });
-      }
-
       const venue = await venueService.deleteVenue(req.params.id);
 
       if (!venue) {
         return res.status(404).json({ error: "Venue not found" });
       }
 
-      // Emit socket event for real-time updates
       socketService.emitVenueDelete(req.params.id);
-
       res.json({ message: "Venue deleted successfully" });
     } catch (error) {
       console.error("Error deleting venue:", error);
@@ -171,28 +108,23 @@ export const venueController = {
 
   async attendVenue(req: Request, res: Response) {
     try {
-      // Cast to AuthenticatedRequest only when accessing user
-      const user = (req as AuthenticatedRequest).user;
+      const user = getUser(req);
+      const result = await venueService.attendVenue(req.params.id, user.id);
 
-      const venue = await venueService.attendVenue(req.params.id, user.id);
-
-      if (!venue) {
+      if (!result) {
         return res.status(404).json({ error: "Venue not found" });
       }
 
-      // Check for custom error response
-      if ((venue as any).error) {
-        return res.status(400).json({ error: (venue as any).error });
+      // Check if result contains an error
+      if ('error' in result) {
+        return res.status(400).json({ error: result.error });
       }
 
-      // Emit socket event for real-time updates
-      socketService.emitVenueUpdate(venue);
+      // At this point, result is guaranteed to be IVenue
+      socketService.emitVenueUpdate(result);
+      socketService.emitVenueAttendeesUpdate(req.params.id, result.attendees || []);
 
-      // Get attendees and emit to all users in this venue room
-      const attendees = venue.attendees || [];
-      socketService.emitVenueAttendeesUpdate(req.params.id, attendees);
-
-      res.json(venue);
+      res.json(result);
     } catch (error) {
       console.error("Error attending venue:", error);
       res.status(500).json({ error: "Failed to attend venue" });
@@ -201,28 +133,23 @@ export const venueController = {
 
   async cancelAttendance(req: Request, res: Response) {
     try {
-      // Cast to AuthenticatedRequest only when accessing user
-      const user = (req as AuthenticatedRequest).user;
+      const user = getUser(req);
+      const result = await venueService.cancelAttendance(req.params.id, user.id);
 
-      const venue = await venueService.cancelAttendance(req.params.id, user.id);
-
-      if (!venue) {
+      if (!result) {
         return res.status(404).json({ error: "Venue not found" });
       }
 
-      // Check for custom error response
-      if ((venue as any).error) {
-        return res.status(400).json({ error: (venue as any).error });
+      // Check if result contains an error
+      if ('error' in result) {
+        return res.status(400).json({ error: result.error });
       }
 
-      // Emit socket event for real-time updates
-      socketService.emitVenueUpdate(venue);
+      // At this point, result is guaranteed to be IVenue
+      socketService.emitVenueUpdate(result);
+      socketService.emitVenueAttendeesUpdate(req.params.id, result.attendees || []);
 
-      // Get attendees and emit to all users in this venue room
-      const attendees = venue.attendees || [];
-      socketService.emitVenueAttendeesUpdate(req.params.id, attendees);
-
-      res.json(venue);
+      res.json(result);
     } catch (error) {
       console.error("Error canceling attendance:", error);
       res.status(500).json({ error: "Failed to cancel attendance" });
@@ -231,25 +158,13 @@ export const venueController = {
 
   async removeAllAttendees(req: Request, res: Response) {
     try {
-      // Cast to AuthenticatedRequest only when accessing user
-      const user = (req as AuthenticatedRequest).user;
-
-      if (!user.isAdmin) {
-        return res
-          .status(403)
-          .json({ error: "Only admins can remove all attendees" });
-      }
-
       const venue = await venueService.removeAllAttendees(req.params.id);
 
       if (!venue) {
         return res.status(404).json({ error: "Venue not found" });
       }
 
-      // Emit socket event for real-time updates
       socketService.emitVenueUpdate(venue);
-
-      // Emit empty attendees list to all users in this venue room
       socketService.emitVenueAttendeesUpdate(req.params.id, []);
 
       res.json(venue);
@@ -262,6 +177,11 @@ export const venueController = {
   async getVenueAttendees(req: Request, res: Response) {
     try {
       const attendees = await venueService.getVenueAttendees(req.params.id);
+      
+      if (attendees === null) {
+        return res.status(404).json({ error: "Venue not found" });
+      }
+
       res.json(attendees);
     } catch (error) {
       console.error("Error fetching venue attendees:", error);

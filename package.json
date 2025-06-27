@@ -4,16 +4,20 @@
   "description": "Backend for Malabon Pickleball application",
   "main": "dist/index.js",
   "scripts": {
-    "start": "NODE_ENV=production node dist/index.js",
-    "start:win": "set NODE_ENV=production&& node dist/index.js",
     "dev": "NODE_ENV=development nodemon src/index.ts",
     "dev:win": "set NODE_ENV=development&& nodemon src/index.ts",
+    "start": "NODE_ENV=production node dist/index.js",
+    "start:win": "set NODE_ENV=production&& node dist/index.js",
     "build": "tsc",
+    "build:dev": "NODE_ENV=development tsc",
     "build:prod": "NODE_ENV=production tsc",
-    "test": "jest"
+    "test": "jest",
+    "clean": "rm -rf dist",
+    "clean:win": "rmdir /s dist"
   },
   "dependencies": {
     "@types/jsonwebtoken": "^9.0.9",
+    "axios": "^1.10.0",
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",
     "express": "^4.18.2",

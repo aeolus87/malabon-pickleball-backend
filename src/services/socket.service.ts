@@ -1,9 +1,10 @@
 import { Server as SocketIOServer } from "socket.io";
 import { IVenue } from "../models/venue.model";
+import { ServerToClientEvents, ClientToServerEvents } from "../types/socket.types";
 
-let io: SocketIOServer;
+let io: SocketIOServer<ClientToServerEvents, ServerToClientEvents>;
 
-export const initSocketService = (socketIo: SocketIOServer) => {
+export const initSocketService = (socketIo: SocketIOServer<ClientToServerEvents, ServerToClientEvents>) => {
   io = socketIo;
 };
 
@@ -58,16 +59,11 @@ export const socketService = {
   emitUserAccountAction: (userId: string, action: string, message: string) => {
     if (!io) return;
 
-    // Repeatedly emit the event for deletion to ensure it's received
+    const timestamp = Date.now();
+    
     if (action === "delete") {
-      // Set up a series of broadcasts for deletion events to ensure clients receive it
+      // Broadcast deletion with immediate and one retry
       const broadcastDeletion = () => {
-        const timestamp = Date.now();
-        console.log(
-          `Broadcasting account deletion for user ${userId} at ${timestamp}`
-        );
-
-        // Broadcast the deletion event
         io.emit("auth:account", {
           userId,
           action,
@@ -75,8 +71,6 @@ export const socketService = {
           timestamp,
           forceLogout: true,
         });
-
-        // Also send a logout event for backward compatibility
         io.emit("auth:logout", {
           userId,
           forced: true,
@@ -87,15 +81,11 @@ export const socketService = {
 
       // Immediate broadcast
       broadcastDeletion();
-
-      // Repeated broadcasts over 10 seconds to ensure delivery
-      // This handles clients that might reconnect or have intermittent connections
-      for (let delay of [200, 500, 1000, 2000, 5000, 10000]) {
-        setTimeout(broadcastDeletion, delay);
-      }
+      // Single retry after 1 second
+      setTimeout(broadcastDeletion, 1000);
     } else {
       // For other actions, just emit once
-      io.emit("auth:account", { userId, action, message });
+      io.emit("auth:account", { userId, action, message, timestamp });
     }
   },
 };

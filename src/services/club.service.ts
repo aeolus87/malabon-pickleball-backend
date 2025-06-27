@@ -1,10 +1,15 @@
 // src/services/club.service.ts
 import { Club } from "../models/club.model";
-import { User } from "../models/user.model"; // Add this import
+import { User } from "../models/user.model";
+import { validateObjectId, validateObjectIds } from "../utils/validation";
+
+// Standard population fields for consistency
+const CLUB_FIELDS = "_id name description logo createdAt updatedAt";
+const USER_FIELDS = "_id displayName photoURL email";
 
 export const clubService = {
   async getAllClubs() {
-    return Club.find().lean();
+    return Club.find().select(CLUB_FIELDS).lean();
   },
 
   async createClub(name: string, description: string, logo?: string) {
@@ -13,6 +18,10 @@ export const clubService = {
   },
 
   async addClubsToUser(userId: string, clubIds: string[]) {
+    if (!validateObjectId(userId) || !clubIds.every(id => validateObjectId(id))) {
+      return null;
+    }
+
     return User.findByIdAndUpdate(
       userId,
       { clubs: clubIds, isProfileComplete: true },
@@ -21,6 +30,8 @@ export const clubService = {
   },
 
   async addClubToUser(userId: string, clubId: string) {
+    if (!validateObjectIds(userId, clubId)) return null;
+
     return User.findByIdAndUpdate(
       userId,
       { $addToSet: { clubs: clubId } },
@@ -29,6 +40,8 @@ export const clubService = {
   },
 
   async removeClubFromUser(userId: string, clubId: string) {
+    if (!validateObjectIds(userId, clubId)) return null;
+
     return User.findByIdAndUpdate(
       userId,
       { $pull: { clubs: clubId } },
@@ -37,20 +50,21 @@ export const clubService = {
   },
 
   async getClubById(clubId: string) {
-    return Club.findById(clubId).lean();
+    if (!validateObjectId(clubId)) return null;
+    
+    return Club.findById(clubId).select(CLUB_FIELDS).lean();
   },
 
   async getClubMembers(clubId: string) {
-    const members = await User.find(
-      { clubs: clubId },
-      "displayName photoURL email"
-    ).lean();
-    return members;
+    if (!validateObjectId(clubId)) return null;
+    
+    return User.find({ clubs: clubId })
+      .select(USER_FIELDS)
+      .lean();
   },
 
   async getClubWithMemberCount() {
-    // Aggregate clubs with their member counts
-    const clubsWithCounts = await Club.aggregate([
+    return Club.aggregate([
       {
         $lookup: {
           from: "users",
@@ -71,7 +85,44 @@ export const clubService = {
         },
       },
     ]);
+  },
+
+  async getUserClubsWithDetails(userId: string) {
+    if (!validateObjectId(userId)) return [];
+    
+    const user = await User.findById(userId).populate('clubs').lean();
+    
+    if (!user?.clubs) return [];
+
+    // Get member counts for each club in parallel
+    const clubsWithCounts = await Promise.all(
+      user.clubs.map(async (club: any) => {
+        const memberCount = await User.countDocuments({ clubs: club._id });
+        return { ...club, memberCount };
+      })
+    );
 
     return clubsWithCounts;
+  },
+
+  async getClubWithMembers(clubId: string) {
+    if (!validateObjectId(clubId)) return null;
+    
+    const [club, members] = await Promise.all([
+      Club.findById(clubId).select(CLUB_FIELDS).lean(),
+      User.find({ clubs: clubId }).select(USER_FIELDS).lean()
+    ]);
+    
+    if (!club) return null;
+
+    return {
+      club,
+      members: members.map(member => ({
+        _id: member._id,
+        displayName: member.displayName,
+        photoURL: member.photoURL,
+        email: member.email
+      }))
+    };
   },
 };

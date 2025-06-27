@@ -2,66 +2,60 @@
 import { OAuth2Client } from "google-auth-library";
 import { User } from "../models/user.model";
 import { generateToken } from "../utils/jwt";
-import dotenv from "dotenv";
+import jwt from "jsonwebtoken";
 import crypto from "crypto";
 
-dotenv.config();
-
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
-// Using direct path routing (no hash) for Google OAuth
 const REDIRECT_URI = `${CLIENT_URL}/auth/google/callback`;
 
-console.log("Auth Service: Using redirect URI:", REDIRECT_URI);
+// Super admin credentials
+const SUPER_ADMIN_USERNAME = process.env.SUPER_ADMIN_USERNAME || "masteradmin";
+const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || "malabon-master-2023";
 
-if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
-  throw new Error("Google OAuth credentials are not properly configured");
-}
+// Initialize OAuth client only when needed
+let client: OAuth2Client | null = null;
 
-const client = new OAuth2Client(
-  GOOGLE_CLIENT_ID,
-  GOOGLE_CLIENT_SECRET,
-  REDIRECT_URI
-);
+const getOAuthClient = () => {
+  if (!client) {
+    const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+    const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+
+    if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+      throw new Error("Google OAuth credentials are not properly configured");
+    }
+
+    client = new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, REDIRECT_URI);
+  }
+  return client;
+};
+
+const SCOPES = [
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+];
 
 export const authService = {
-  getGoogleAuthUrl() {
-    const scopes = [
-      "https://www.googleapis.com/auth/userinfo.email",
-      "https://www.googleapis.com/auth/userinfo.profile",
-    ];
+  getGoogleAuthUrl(codeVerifier?: string) {
+    try {
+      const authUrl = getOAuthClient().generateAuthUrl({
+        access_type: "offline",
+        scope: SCOPES,
+        prompt: "consent",
+        ...(codeVerifier && {
+          code_challenge_method: "S256" as any,
+          code_challenge: this.generateCodeChallenge(codeVerifier),
+        }),
+      });
 
-    return client.generateAuthUrl({
-      access_type: "offline",
-      scope: scopes,
-      prompt: "consent",
-    });
+      return authUrl;
+    } catch (error) {
+      console.error("Failed to generate Google auth URL:", error);
+      throw error;
+    }
   },
 
-  getGoogleAuthUrlWithPKCE(codeVerifier: string) {
-    const scopes = [
-      "https://www.googleapis.com/auth/userinfo.email",
-      "https://www.googleapis.com/auth/userinfo.profile",
-    ];
-
-    // Generate a code challenge from the code verifier using SHA256
-    const codeChallenge = this.generateCodeChallenge(codeVerifier);
-
-    return client.generateAuthUrl({
-      access_type: "offline",
-      scope: scopes,
-      prompt: "consent",
-      code_challenge_method: "S256" as any,
-      code_challenge: codeChallenge,
-    });
-  },
-
-  // Helper method to generate code challenge from verifier
   generateCodeChallenge(verifier: string): string {
-    // Create a SHA256 hash of the code verifier
     const hash = crypto.createHash("sha256").update(verifier).digest();
-    // Base64 URL encode the hash
     return hash
       .toString("base64")
       .replace(/\+/g, "-")
@@ -69,11 +63,32 @@ export const authService = {
       .replace(/=+$/, "");
   },
 
+  async exchangeCodeForToken(code: string, codeVerifier?: string) {
+    try {
+      const tokenOptions: any = { code };
+      if (codeVerifier) {
+        tokenOptions.codeVerifier = codeVerifier;
+      }
+
+      const { tokens } = await getOAuthClient().getToken(tokenOptions);
+      const idToken = tokens.id_token;
+
+      if (!idToken) {
+        throw new Error("No ID token received from Google");
+      }
+
+      return this.handleGoogleSignIn(idToken);
+    } catch (error) {
+      console.error("Token exchange error:", error);
+      throw error;
+    }
+  },
+
   async verifyGoogleToken(token: string) {
     try {
-      const ticket = await client.verifyIdToken({
+      const ticket = await getOAuthClient().verifyIdToken({
         idToken: token,
-        audience: GOOGLE_CLIENT_ID,
+        audience: process.env.GOOGLE_CLIENT_ID,
       });
 
       const payload = ticket.getPayload();
@@ -89,100 +104,49 @@ export const authService = {
   },
 
   async handleGoogleSignIn(token: string) {
-    try {
-      const googleUserInfo = await this.verifyGoogleToken(token);
+    const googleUserInfo = await this.verifyGoogleToken(token);
 
-      // Check if user exists first
-      let user = await User.findOne({ email: googleUserInfo.email });
+    // Find or create user
+    let user = await User.findOne({ email: googleUserInfo.email });
 
-      if (!user) {
-        try {
-          // Create new user
-          user = new User({
-            email: googleUserInfo.email,
-            displayName: googleUserInfo.name,
-            photoURL: null, // Never use Google profile picture for new users
-            isProfileComplete: false,
-          });
-          await user.save();
-        } catch (saveError: any) {
-          // If we get a duplicate key error, try to find the user again
-          // This handles race conditions where the user might have been created between our check and save
-          if (saveError.code === 11000 && saveError.keyPattern?.email) {
-            console.log("Duplicate key detected, retrieving existing user");
-            user = await User.findOne({ email: googleUserInfo.email });
-            if (!user) {
-              // If we still can't find the user, something is very wrong
-              throw new Error("Failed to create or retrieve user");
-            }
-          } else {
-            // If it's not a duplicate key error, rethrow
-            throw saveError;
-          }
-        }
-      }
-
-      // At this point we should have a valid user, either existing or newly created
-      // Update user information if needed
-      let needsUpdate = false;
-
-      // NEVER update photoURL at all - let users set their own profile pictures
-      // if (googleUserInfo.picture && user.photoURL === null) {
-      //   user.photoURL = googleUserInfo.picture;
-      //   needsUpdate = true;
-      // }
-
-      // Only update displayName if it doesn't match Google and is not customized
-      if (googleUserInfo.name && user.displayName !== googleUserInfo.name) {
-        user.displayName = googleUserInfo.name;
-        needsUpdate = true;
-      }
-
-      if (needsUpdate) {
-        try {
-          await user.save();
-        } catch (updateError) {
-          console.error("Failed to update user profile:", updateError);
-          // We can continue even if the update fails
-        }
-      }
-
-      // Generate JWT token
-      const jwtToken = generateToken(user._id.toString());
-
-      return {
-        token: jwtToken,
-        user: {
-          id: user._id,
-          email: user.email,
-          displayName: user.displayName,
-          photoURL: user.photoURL,
-          coverPhoto: user.coverPhoto,
-          isAdmin: user.isAdmin,
-          isSuperAdmin: user.isSuperAdmin,
-          isProfileComplete: user.isProfileComplete,
-          bio: user.bio,
-        },
-      };
-    } catch (error) {
-      console.error("Error in handleGoogleSignIn:", error);
-      throw error;
+    if (!user) {
+      user = await User.create({
+        email: googleUserInfo.email,
+        displayName: googleUserInfo.name,
+        photoURL: null, // Never use Google profile picture
+        isProfileComplete: false,
+      });
+    } else if (googleUserInfo.name && user.displayName !== googleUserInfo.name) {
+      // Update display name if changed
+      user.displayName = googleUserInfo.name;
+      await user.save();
     }
+
+    return {
+      token: generateToken(user._id.toString()),
+      user: {
+        id: user._id,
+        email: user.email,
+        displayName: user.displayName,
+        photoURL: user.photoURL,
+        coverPhoto: user.coverPhoto,
+        isAdmin: user.isAdmin,
+        isSuperAdmin: user.isSuperAdmin,
+        isProfileComplete: user.isProfileComplete,
+        bio: user.bio,
+      },
+    };
   },
 
   async logout(userId: string) {
-    // Implement any server-side logout logic if needed
-    // For JWT, client-side token removal is usually sufficient
+    // For JWT, client-side token removal is sufficient
     return true;
   },
 
   async getSession(userId: string) {
     const user = await User.findById(userId);
 
-    // Return null instead of throwing error if user not found
-    // This allows the controller to handle the case explicitly
     if (!user) {
-      console.log(`User not found in getSession: ${userId}`);
       return null;
     }
 
@@ -196,6 +160,57 @@ export const authService = {
       isSuperAdmin: user.isSuperAdmin,
       isProfileComplete: user.isProfileComplete,
       bio: user.bio,
+    };
+  },
+
+  async authenticateSuperAdmin(username: string, password: string) {
+    if (username !== SUPER_ADMIN_USERNAME || password !== SUPER_ADMIN_PASSWORD) {
+      return null;
+    }
+
+    // Find or create super admin user
+    let superAdmin = await User.findOne({ email: "superadmin@malabon.com" });
+
+    if (!superAdmin) {
+      superAdmin = await User.create({
+        email: "superadmin@malabon.com",
+        displayName: "Super Admin",
+        isAdmin: true,
+        isSuperAdmin: true,
+        isProfileComplete: true,
+      });
+    } else if (!superAdmin.isSuperAdmin) {
+      // Ensure super admin privileges
+      superAdmin.isSuperAdmin = true;
+      superAdmin.isAdmin = true;
+      await superAdmin.save();
+    }
+
+    return {
+      token: jwt.sign(
+        {
+          id: superAdmin._id,
+          email: superAdmin.email,
+          displayName: superAdmin.displayName,
+          photoURL: superAdmin.photoURL,
+          isAdmin: superAdmin.isAdmin,
+          isSuperAdmin: superAdmin.isSuperAdmin,
+          isProfileComplete: superAdmin.isProfileComplete,
+        },
+        process.env.JWT_SECRET!,
+        { expiresIn: "24h" }
+      ),
+      user: {
+        id: superAdmin._id,
+        email: superAdmin.email,
+        displayName: superAdmin.displayName,
+        photoURL: superAdmin.photoURL,
+        isAdmin: superAdmin.isAdmin,
+        isSuperAdmin: superAdmin.isSuperAdmin,
+        isProfileComplete: superAdmin.isProfileComplete,
+        bio: superAdmin.bio,
+        coverPhoto: superAdmin.coverPhoto,
+      },
     };
   },
 

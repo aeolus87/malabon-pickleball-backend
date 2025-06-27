@@ -1,18 +1,23 @@
 // src/services/venue.service.ts
 import { Venue, IVenue } from "../models/venue.model";
-import mongoose from "mongoose";
+import { validateObjectId, validateObjectIds, toObjectId } from "../utils/validation";
+
+// Standard population fields for consistency
+const ATTENDEE_FIELDS = "displayName photoURL email";
+
+// Type for venue service responses that might include errors
+type VenueServiceResult = IVenue | { error: string } | null;
 
 export const venueService = {
   async getAllVenues() {
-    return Venue.find().populate("attendees", "displayName photoURL").lean();
+    return Venue.find().populate("attendees", ATTENDEE_FIELDS).lean();
   },
 
   async getVenueById(id: string) {
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return null;
-    }
+    if (!validateObjectId(id)) return null;
+    
     return Venue.findById(id)
-      .populate("attendees", "displayName photoURL")
+      .populate("attendees", ATTENDEE_FIELDS)
       .lean();
   },
 
@@ -26,148 +31,101 @@ export const venueService = {
   },
 
   async updateVenueStatus(id: string, status: string) {
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return null;
-    }
-    return Venue.findByIdAndUpdate(id, { status }, { new: true }).populate(
-      "attendees",
-      "displayName photoURL"
-    );
+    if (!validateObjectId(id)) return null;
+    
+    return Venue.findByIdAndUpdate(id, { status }, { new: true })
+      .populate("attendees", ATTENDEE_FIELDS);
   },
 
   async updateVenuePhoto(id: string, photoURL: string) {
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return null;
-    }
-    return Venue.findByIdAndUpdate(id, { photoURL }, { new: true }).populate(
-      "attendees",
-      "displayName photoURL email"
-    );
+    if (!validateObjectId(id)) return null;
+    
+    return Venue.findByIdAndUpdate(id, { photoURL }, { new: true })
+      .populate("attendees", ATTENDEE_FIELDS);
   },
 
   async updateVenue(id: string, updates: Partial<IVenue>) {
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return null;
-    }
+    if (!validateObjectId(id)) return null;
 
-    // Only allow certain fields to be updated
-    const allowedUpdates: Record<string, any> = {
-      name: updates.name,
-      status: updates.status,
-      photoURL: updates.photoURL,
-      // Add other fields that should be updateable
-    };
-
-    // Remove undefined values
-    Object.keys(allowedUpdates).forEach((key) => {
-      if (allowedUpdates[key] === undefined) {
-        delete allowedUpdates[key];
-      }
-    });
-
-    return Venue.findByIdAndUpdate(id, allowedUpdates, { new: true }).populate(
-      "attendees",
-      "displayName photoURL email"
+    // Filter out undefined values
+    const cleanUpdates = Object.fromEntries(
+      Object.entries(updates).filter(([_, value]) => value !== undefined)
     );
+
+    return Venue.findByIdAndUpdate(id, cleanUpdates, { new: true })
+      .populate("attendees", ATTENDEE_FIELDS);
   },
 
   async deleteVenue(id: string) {
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return null;
-    }
+    if (!validateObjectId(id)) return null;
+    
     return Venue.findByIdAndDelete(id);
   },
 
-  async attendVenue(venueId: string, userId: string) {
-    if (
-      !mongoose.Types.ObjectId.isValid(venueId) ||
-      !mongoose.Types.ObjectId.isValid(userId)
-    ) {
-      return null;
-    }
+  async attendVenue(venueId: string, userId: string): Promise<VenueServiceResult> {
+    if (!validateObjectIds(venueId, userId)) return null;
 
-    // Check if user has exceeded the cancellation limit
     const venue = await Venue.findById(venueId);
     if (!venue) return null;
 
-    // Check cancellation count using string key access since Mongoose maps are used as objects in practice
-    const cancellationCountsObj = venue.get("cancellationCounts") || {};
-    const userCancellations = cancellationCountsObj[userId] || 0;
-
-    if (userCancellations >= 2) {
-      // Create a custom error response that will be caught in the controller
-      const errorVenue = venue.toObject();
-      (errorVenue as any).error =
-        "You've already cancelled attendance for this venue twice. You can't sign up again.";
-      return errorVenue;
+    // Check cancellation limit
+    const cancellationCount = venue.get("cancellationCounts")?.[userId] || 0;
+    if (cancellationCount >= 2) {
+      return { 
+        ...venue.toObject(), 
+        error: "You've cancelled attendance twice. Cannot sign up again." 
+      };
     }
 
-    const userObjectId = new mongoose.Types.ObjectId(userId);
     return Venue.findByIdAndUpdate(
       venueId,
-      { $addToSet: { attendees: userObjectId } },
+      { $addToSet: { attendees: toObjectId(userId) } },
       { new: true }
-    ).populate("attendees", "displayName photoURL email");
+    ).populate("attendees", ATTENDEE_FIELDS);
   },
 
-  async cancelAttendance(venueId: string, userId: string) {
-    if (
-      !mongoose.Types.ObjectId.isValid(venueId) ||
-      !mongoose.Types.ObjectId.isValid(userId)
-    ) {
-      return null;
-    }
+  async cancelAttendance(venueId: string, userId: string): Promise<VenueServiceResult> {
+    if (!validateObjectIds(venueId, userId)) return null;
 
-    // First check if user is actually attending
     const venue = await Venue.findById(venueId);
     if (!venue) return null;
 
-    const isAttending = venue.attendees.some(
-      (attendeeId) => attendeeId.toString() === userId
-    );
-
+    // Check if user is attending
+    const isAttending = venue.attendees.some(id => id.toString() === userId);
     if (!isAttending) {
-      const errorVenue = venue.toObject();
-      (errorVenue as any).error = "You are not currently attending this venue.";
-      return errorVenue;
+      return { 
+        ...venue.toObject(), 
+        error: "You are not currently attending this venue." 
+      };
     }
 
-    // Increment cancellation count for this user
-    const cancellationCountsObj = venue.get("cancellationCounts") || {};
-    const currentCount = cancellationCountsObj[userId] || 0;
-
-    // Now remove from attendees and update cancellation count
-    const userObjectId = new mongoose.Types.ObjectId(userId);
+    // Increment cancellation count and remove attendee
+    const currentCount = venue.get("cancellationCounts")?.[userId] || 0;
+    
     return Venue.findByIdAndUpdate(
       venueId,
       {
-        $pull: { attendees: userObjectId },
+        $pull: { attendees: toObjectId(userId) },
         $set: { [`cancellationCounts.${userId}`]: currentCount + 1 },
       },
       { new: true }
-    ).populate("attendees", "displayName photoURL email");
+    ).populate("attendees", ATTENDEE_FIELDS);
   },
 
   async getVenueAttendees(venueId: string) {
-    if (!mongoose.Types.ObjectId.isValid(venueId)) {
-      return null;
-    }
+    if (!validateObjectId(venueId)) return null;
 
-    const venue = await Venue.findById(venueId).populate(
-      "attendees",
-      "displayName photoURL"
-    );
-    return venue ? venue.attendees : null;
+    const venue = await Venue.findById(venueId).populate("attendees", ATTENDEE_FIELDS);
+    return venue?.attendees || null;
   },
 
   async removeAllAttendees(id: string) {
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return null;
-    }
+    if (!validateObjectId(id)) return null;
+    
     return Venue.findByIdAndUpdate(
       id,
       { $set: { attendees: [] } },
       { new: true }
-    ).populate("attendees", "displayName photoURL email");
+    ).populate("attendees", ATTENDEE_FIELDS);
   },
 };
