@@ -23,8 +23,8 @@ export const venueController = {
 
   async createVenue(req: Request, res: Response) {
     try {
-      const { name, status, photoURL } = req.body;
-      const venue = await venueService.createVenue({ name, status, photoURL });
+      const { name, status, photoURL, latitude, longitude } = req.body;
+      const venue = await venueService.createVenue({ name, status, photoURL, latitude, longitude });
 
       socketService.emitVenueUpdate(venue);
 

@@ -8,6 +8,8 @@ export interface IVenue extends Document {
   createdAt: Date;
   updatedAt: Date;
   cancellationCounts: Record<string, number>; // Track user cancellations
+  latitude?: number;
+  longitude?: number;
 }
 
 const venueSchema = new Schema<IVenue>(
@@ -37,6 +39,16 @@ const venueSchema = new Schema<IVenue>(
       type: Map,
       of: Number,
       default: {},
+    },
+    latitude: {
+      type: Number,
+      min: -90,
+      max: 90,
+    },
+    longitude: {
+      type: Number,
+      min: -180,
+      max: 180,
     },
   },
   {

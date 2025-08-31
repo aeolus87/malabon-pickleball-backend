@@ -1,6 +1,8 @@
 // src/services/venue.service.ts
 import { Venue, IVenue } from "../models/venue.model";
+import { User } from "../models/user.model";
 import { validateObjectId, validateObjectIds, toObjectId } from "../utils/validation";
+import { emailService } from "./email.service";
 
 // Standard population fields for consistency
 const ATTENDEE_FIELDS = "displayName photoURL email";
@@ -25,6 +27,8 @@ export const venueService = {
     name: string;
     status: string;
     photoURL?: string;
+    latitude?: number;
+    longitude?: number;
   }) {
     const venue = new Venue(venueData);
     return venue.save();
@@ -77,11 +81,33 @@ export const venueService = {
       };
     }
 
-    return Venue.findByIdAndUpdate(
+    const result = await Venue.findByIdAndUpdate(
       venueId,
       { $addToSet: { attendees: toObjectId(userId) } },
       { new: true }
     ).populate("attendees", ATTENDEE_FIELDS);
+
+    // Send confirmation email if attendance was successful
+    if (result && !('error' in result)) {
+      try {
+        const user = await User.findById(userId).select("email displayName");
+        if (user && user.email) {
+          // Send email asynchronously (don't wait for it)
+          emailService.sendAttendanceConfirmation(
+            user.email,
+            user.displayName || 'Player',
+            venue.name
+          ).catch(error => {
+            console.error('Failed to send confirmation email:', error);
+          });
+        }
+      } catch (error) {
+        console.error('Error sending confirmation email:', error);
+        // Don't fail the attendance if email fails
+      }
+    }
+
+    return result;
   },
 
   async cancelAttendance(venueId: string, userId: string): Promise<VenueServiceResult> {

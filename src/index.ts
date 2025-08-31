@@ -76,8 +76,7 @@ const allowedOrigins = [
   process.env.CLIENT_URL || "http://localhost:5173",
   "http://localhost:3000",
   "https://malabonpickleballers.com",
-  "https://www.malabonpickleballers.com",
-  "https://malabon-pickleball-client.vercel.app"
+  "https://www.malabonpickleballers.com"
 ];
 
 app.use(
