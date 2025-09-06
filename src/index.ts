@@ -9,6 +9,7 @@ import authRoutes from "./routes/auth.routes";
 import venueRoutes from "./routes/venue.routes";
 import clubRoutes from "./routes/club.routes";
 import userRoutes from "./routes/user.routes";
+import uploadRoutes from "./routes/upload.routes";
 // import contactRoutes from "./routes/contact.routes";
 import connectDB from "./utils/db";
 import { IUser } from "./types/express";
@@ -101,6 +102,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/venues", venueRoutes);
 app.use("/api/clubs", clubRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/uploads", uploadRoutes);
 // app.use("/api/contact", contactRoutes);
 
 // Socket.IO authentication middleware

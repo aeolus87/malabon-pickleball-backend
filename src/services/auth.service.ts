@@ -4,21 +4,45 @@ import { User } from "../models/user.model";
 import { generateToken } from "../utils/jwt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import dotenv from "dotenv";
+import path from "path";
+import { hashPassword, verifyPassword } from "../utils/password";
+import { User as UserModel } from "../models/user.model";
 
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
-const REDIRECT_URI = `${CLIENT_URL}/auth/google/callback`;
-
-// Super admin credentials
-const SUPER_ADMIN_USERNAME = process.env.SUPER_ADMIN_USERNAME || "masteradmin";
-const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || "malabon-master-2023";
-
-if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
-  throw new Error("Google OAuth credentials are not properly configured");
+// Ensure env is loaded even if this module is imported before index.ts calls dotenv.config
+if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+  const envFile = process.env.NODE_ENV === "production" ? ".env.production" : ".env.development";
+  dotenv.config({ path: path.resolve(process.cwd(), envFile) });
 }
 
-const client = new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, REDIRECT_URI);
+function getEnv() {
+  const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+  const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+  const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
+  const SERVER_URL = process.env.SERVER_URL || process.env.API_URL || "http://localhost:5000";
+  const REDIRECT_URI = `${SERVER_URL.replace(/\/$/, "")}/api/auth/google/callback`;
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    throw new Error("Google OAuth credentials are not properly configured");
+  }
+  return { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, CLIENT_URL, SERVER_URL, REDIRECT_URI };
+}
+
+// Super admin credentials
+const NODE_ENV = process.env.NODE_ENV || "development";
+const isProduction = NODE_ENV === "production";
+const SUPER_ADMIN_USERNAME = process.env.SUPER_ADMIN_USERNAME || (isProduction ? "" : "masteradmin");
+const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || (isProduction ? "" : "malabon-master-2023");
+
+if (isProduction && (!SUPER_ADMIN_USERNAME || !SUPER_ADMIN_PASSWORD)) {
+  throw new Error("SUPER_ADMIN credentials must be set in production");
+}
+
+// Google credentials are validated lazily when needed via getEnv()
+
+function getOAuthClient() {
+  const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, REDIRECT_URI } = getEnv();
+  return new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, REDIRECT_URI);
+}
 
 const SCOPES = [
       "https://www.googleapis.com/auth/userinfo.email",
@@ -26,7 +50,72 @@ const SCOPES = [
     ];
 
 export const authService = {
+  async registerLocal(input: { username: string; password: string; firstName: string; lastName: string; phoneNumber?: string; email?: string }) {
+    const { username, password, firstName, lastName, phoneNumber, email } = input;
+
+    // Ensure uniqueness of username/email
+    const existing = await UserModel.findOne({ $or: [{ username }, { email }] });
+    if (existing) {
+      throw new Error("Username or email already in use");
+    }
+
+    const passwordHash = await hashPassword(password);
+    const finalEmail = email && email.includes("@") ? email : `${username}@local.local`;
+    const displayName = `${firstName} ${lastName}`.trim();
+
+    const user = await UserModel.create({
+      username,
+      email: finalEmail,
+      firstName,
+      lastName,
+      phoneNumber: phoneNumber || null,
+      passwordHash,
+      displayName,
+      isProfileComplete: false,
+    } as any);
+
+    return {
+      token: generateToken(user._id.toString()),
+      user: {
+        id: user._id,
+        email: user.email,
+        displayName: user.displayName,
+        photoURL: user.photoURL,
+        coverPhoto: user.coverPhoto,
+        isAdmin: user.isAdmin,
+        isSuperAdmin: user.isSuperAdmin,
+        isProfileComplete: user.isProfileComplete,
+        bio: user.bio,
+      },
+    };
+  },
+
+  async loginLocal(identifier: string, password: string) {
+    // identifier can be username or email
+    const user = await UserModel.findOne({ $or: [{ username: identifier }, { email: identifier }] }).select("+passwordHash email displayName photoURL coverPhoto isAdmin isSuperAdmin isProfileComplete bio");
+    if (!user || !user.passwordHash) {
+      throw new Error("Invalid credentials");
+    }
+    const ok = await verifyPassword(password, user.passwordHash);
+    if (!ok) throw new Error("Invalid credentials");
+
+    return {
+      token: generateToken(user._id.toString()),
+      user: {
+        id: user._id,
+        email: user.email,
+        displayName: user.displayName,
+        photoURL: user.photoURL,
+        coverPhoto: user.coverPhoto,
+        isAdmin: user.isAdmin,
+        isSuperAdmin: user.isSuperAdmin,
+        isProfileComplete: user.isProfileComplete,
+        bio: user.bio,
+      },
+    };
+  },
   getGoogleAuthUrl(codeVerifier?: string) {
+    const client = getOAuthClient();
     const authUrl = client.generateAuthUrl({
       access_type: "offline",
       scope: SCOPES,
@@ -55,6 +144,7 @@ export const authService = {
       tokenOptions.codeVerifier = codeVerifier;
     }
 
+    const client = getOAuthClient();
     const { tokens } = await client.getToken(tokenOptions);
     const idToken = tokens.id_token;
 
@@ -67,6 +157,8 @@ export const authService = {
 
   async verifyGoogleToken(token: string) {
     try {
+      const { GOOGLE_CLIENT_ID } = getEnv();
+      const client = getOAuthClient();
       const ticket = await client.verifyIdToken({
         idToken: token,
         audience: GOOGLE_CLIENT_ID,
