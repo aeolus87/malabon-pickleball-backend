@@ -38,7 +38,7 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
       coverPhoto: user.coverPhoto,
       isAdmin: user.isAdmin,
       isSuperAdmin: user.isSuperAdmin,
-      isProfileComplete: user.isProfileComplete,
+      isVerified: user.isVerified || false,
       bio: user.bio,
     };
 

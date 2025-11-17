@@ -8,7 +8,7 @@ export interface IUser {
   coverPhoto: string | null;
   isAdmin: boolean;
   isSuperAdmin: boolean;
-  isProfileComplete: boolean;
+  isVerified: boolean;
   bio: string | null;
 }
 

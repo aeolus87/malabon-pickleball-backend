@@ -11,6 +11,8 @@ router.post('/register', authController.register);
 router.post('/login', authController.login);
 router.post('/google/exchange', authController.exchangeCodeForToken);
 router.post('/google/signin', authController.googleSignIn);
+router.get('/verify-email', authController.verifyEmail);
+router.post('/verify-email-code', authController.verifyEmailByCode);
 
 // Protected routes
 router.get('/session', authenticateToken, authController.getSession);

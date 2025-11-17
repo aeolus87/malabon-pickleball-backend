@@ -43,7 +43,6 @@ async function createSuperAdmin(email, displayName) {
       displayName,
       isAdmin: true,
       isSuperAdmin: true,
-      isProfileComplete: true,
       photoURL: null
     });
     

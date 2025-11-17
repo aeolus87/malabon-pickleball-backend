@@ -14,7 +14,11 @@ export interface IUser extends Document {
   coverPhoto: string | null;
   isAdmin: boolean;
   isSuperAdmin: boolean;
-  isProfileComplete: boolean;
+  isVerified: boolean;
+  verificationToken?: string | null;
+  verificationTokenExpiry?: Date | null;
+  verificationCode?: string | null;
+  verificationCodeExpiry?: Date | null;
   bio: string | null;
   clubs: mongoose.Types.ObjectId[];
   createdAt: Date;
@@ -56,10 +60,6 @@ const userSchema = new Schema<IUser>({
     type: String,
     default: null,
   },
-  isProfileComplete: {
-    type: Boolean,
-    default: false,
-  },
   isAdmin: {
     type: Boolean,
     default: false,
@@ -67,6 +67,28 @@ const userSchema = new Schema<IUser>({
   isSuperAdmin: {
     type: Boolean,
     default: false,
+  },
+  isVerified: {
+    type: Boolean,
+    default: false,
+  },
+  verificationToken: {
+    type: String,
+    default: null,
+    select: false,
+  },
+  verificationTokenExpiry: {
+    type: Date,
+    default: null,
+  },
+  verificationCode: {
+    type: String,
+    default: null,
+    select: false,
+  },
+  verificationCodeExpiry: {
+    type: Date,
+    default: null,
   },
   clubs: [
     {

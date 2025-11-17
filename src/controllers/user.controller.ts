@@ -8,14 +8,13 @@ export const userController = {
   async updateProfile(req: Request, res: Response) {
     try {
       const user = getUser(req);
-      const { displayName, bio, photoURL, coverPhoto, isProfileComplete } = req.body;
+      const { displayName, bio, photoURL, coverPhoto } = req.body;
 
       const updatedProfile = await userService.updateUserProfile(user.id, {
         displayName,
         bio,
         photoURL,
         coverPhoto,
-        isProfileComplete,
       });
 
       if (!updatedProfile) {

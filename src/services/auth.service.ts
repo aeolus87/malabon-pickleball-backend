@@ -8,6 +8,8 @@ import dotenv from "dotenv";
 import path from "path";
 import { hashPassword, verifyPassword } from "../utils/password";
 import { User as UserModel } from "../models/user.model";
+import { emailService } from "./email.service";
+import { validatePhilippinesPhoneNumber } from "../utils/validation";
 
 // Ensure env is loaded even if this module is imported before index.ts calls dotenv.config
 if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
@@ -50,8 +52,18 @@ const SCOPES = [
     ];
 
 export const authService = {
-  async registerLocal(input: { username: string; password: string; firstName: string; lastName: string; phoneNumber?: string; email?: string }) {
+  async registerLocal(input: { username: string; password: string; firstName: string; lastName: string; phoneNumber?: string; email: string }) {
     const { username, password, firstName, lastName, phoneNumber, email } = input;
+
+    // Validate email is provided and valid
+    if (!email || !email.includes("@")) {
+      throw new Error("Valid email address is required");
+    }
+
+    // Validate phone number if provided (must be Philippines format)
+    if (phoneNumber && !validatePhilippinesPhoneNumber(phoneNumber)) {
+      throw new Error("Phone number must be in Philippines format (+639XXXXXXXXX or 09XXXXXXXXX)");
+    }
 
     // Ensure uniqueness of username/email
     const existing = await UserModel.findOne({ $or: [{ username }, { email }] });
@@ -60,19 +72,40 @@ export const authService = {
     }
 
     const passwordHash = await hashPassword(password);
-    const finalEmail = email && email.includes("@") ? email : `${username}@local.local`;
     const displayName = `${firstName} ${lastName}`.trim();
+
+    // Generate verification token (for email link)
+    const verificationToken = crypto.randomBytes(32).toString("hex");
+    const verificationTokenExpiry = new Date();
+    verificationTokenExpiry.setHours(verificationTokenExpiry.getHours() + 24); // 24 hours from now
+
+    // Generate 6-digit verification code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const verificationCodeExpiry = new Date();
+    verificationCodeExpiry.setHours(verificationCodeExpiry.getHours() + 24); // 24 hours from now
 
     const user = await UserModel.create({
       username,
-      email: finalEmail,
+      email,
       firstName,
       lastName,
       phoneNumber: phoneNumber || null,
       passwordHash,
       displayName,
-      isProfileComplete: false,
+      isVerified: false,
+      verificationToken,
+      verificationTokenExpiry,
+      verificationCode,
+      verificationCodeExpiry,
     } as any);
+
+    // Send verification email
+    try {
+      await emailService.sendVerificationEmail(email, verificationToken, verificationCode, displayName || firstName);
+    } catch (error) {
+      console.error("Failed to send verification email:", error);
+      // Don't fail registration if email fails, but log it
+    }
 
     return {
       token: generateToken(user._id.toString()),
@@ -84,7 +117,7 @@ export const authService = {
         coverPhoto: user.coverPhoto,
         isAdmin: user.isAdmin,
         isSuperAdmin: user.isSuperAdmin,
-        isProfileComplete: user.isProfileComplete,
+        isVerified: user.isVerified,
         bio: user.bio,
       },
     };
@@ -92,12 +125,19 @@ export const authService = {
 
   async loginLocal(identifier: string, password: string) {
     // identifier can be username or email
-    const user = await UserModel.findOne({ $or: [{ username: identifier }, { email: identifier }] }).select("+passwordHash email displayName photoURL coverPhoto isAdmin isSuperAdmin isProfileComplete bio");
+    const user = await UserModel.findOne({ $or: [{ username: identifier }, { email: identifier }] }).select("+passwordHash email displayName photoURL coverPhoto isAdmin isSuperAdmin isVerified bio");
     if (!user || !user.passwordHash) {
       throw new Error("Invalid credentials");
     }
     const ok = await verifyPassword(password, user.passwordHash);
     if (!ok) throw new Error("Invalid credentials");
+
+    // Check if user is verified
+    if (!user.isVerified) {
+      const error: any = new Error("Email not verified. Please verify your email before logging in.");
+      error.code = "EMAIL_NOT_VERIFIED";
+      throw error;
+    }
 
     return {
       token: generateToken(user._id.toString()),
@@ -109,7 +149,7 @@ export const authService = {
         coverPhoto: user.coverPhoto,
         isAdmin: user.isAdmin,
         isSuperAdmin: user.isSuperAdmin,
-        isProfileComplete: user.isProfileComplete,
+        isVerified: user.isVerified || false,
         bio: user.bio,
       },
     };
@@ -187,7 +227,6 @@ export const authService = {
             email: googleUserInfo.email,
             displayName: googleUserInfo.name,
         photoURL: null, // Never use Google profile picture
-            isProfileComplete: false,
           });
     } else if (googleUserInfo.name && user.displayName !== googleUserInfo.name) {
       // Update display name if changed
@@ -195,20 +234,20 @@ export const authService = {
           await user.save();
       }
 
-      return {
+    return {
       token: generateToken(user._id.toString()),
-        user: {
-          id: user._id,
-          email: user.email,
-          displayName: user.displayName,
-          photoURL: user.photoURL,
-          coverPhoto: user.coverPhoto,
-          isAdmin: user.isAdmin,
-          isSuperAdmin: user.isSuperAdmin,
-          isProfileComplete: user.isProfileComplete,
-          bio: user.bio,
-        },
-      };
+      user: {
+        id: user._id,
+        email: user.email,
+        displayName: user.displayName,
+        photoURL: user.photoURL,
+        coverPhoto: user.coverPhoto,
+        isAdmin: user.isAdmin,
+        isSuperAdmin: user.isSuperAdmin,
+        isVerified: user.isVerified || false,
+        bio: user.bio,
+      },
+    };
   },
 
   async logout(userId: string) {
@@ -231,7 +270,7 @@ export const authService = {
       coverPhoto: user.coverPhoto,
       isAdmin: user.isAdmin,
       isSuperAdmin: user.isSuperAdmin,
-      isProfileComplete: user.isProfileComplete,
+      isVerified: user.isVerified || false,
       bio: user.bio,
     };
   },
@@ -250,7 +289,6 @@ export const authService = {
         displayName: "Super Admin",
         isAdmin: true,
         isSuperAdmin: true,
-        isProfileComplete: true,
       });
     } else if (!superAdmin.isSuperAdmin) {
       // Ensure super admin privileges
@@ -268,7 +306,6 @@ export const authService = {
           photoURL: superAdmin.photoURL,
           isAdmin: superAdmin.isAdmin,
           isSuperAdmin: superAdmin.isSuperAdmin,
-          isProfileComplete: superAdmin.isProfileComplete,
         },
         process.env.JWT_SECRET!,
         { expiresIn: "24h" }
@@ -280,7 +317,6 @@ export const authService = {
         photoURL: superAdmin.photoURL,
         isAdmin: superAdmin.isAdmin,
         isSuperAdmin: superAdmin.isSuperAdmin,
-        isProfileComplete: superAdmin.isProfileComplete,
         bio: superAdmin.bio,
         coverPhoto: superAdmin.coverPhoto,
       },

@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { authService } from "../services/auth.service";
 import { getAuthUser } from "../middleware/auth.middleware";
+import { generateToken } from "../utils/jwt";
 
 export const authController = {
   async initiateGoogleAuth(req: Request, res: Response) {
@@ -136,7 +137,7 @@ export const authController = {
   async register(req: Request, res: Response) {
     try {
       const { username, password, firstName, lastName, phoneNumber, email } = req.body || {};
-      if (!username || !password || !firstName || !lastName) {
+      if (!username || !password || !firstName || !lastName || !email) {
         return res.status(400).json({ error: "Missing required fields" });
       }
       const result = await authService.registerLocal({ username, password, firstName, lastName, phoneNumber, email });
@@ -144,6 +145,145 @@ export const authController = {
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Registration failed";
       return res.status(400).json({ error: msg });
+    }
+  },
+
+  async verifyEmail(req: Request, res: Response) {
+    try {
+      const { token } = req.query;
+      if (!token || typeof token !== "string") {
+        return res.status(400).json({ error: "Verification token is required" });
+      }
+
+      const { User } = await import("../models/user.model");
+      const user = await User.findOne({ 
+        verificationToken: token,
+        verificationTokenExpiry: { $gt: new Date() }
+      }).select("+verificationToken");
+
+      if (!user) {
+        return res.status(400).json({ error: "Invalid or expired verification token" });
+      }
+
+      if (user.isVerified) {
+        return res.status(400).json({ error: "Email already verified" });
+      }
+
+      // Calculate time difference between registration and verification
+      const now = new Date();
+      const registrationTime = user.createdAt;
+      const timeDifferenceMs = now.getTime() - registrationTime.getTime();
+      const timeDifferenceMinutes = timeDifferenceMs / (1000 * 60);
+      const isInstantVerification = timeDifferenceMinutes <= 5;
+
+      user.isVerified = true;
+      user.verificationToken = null;
+      user.verificationTokenExpiry = null;
+      user.verificationCode = null;
+      user.verificationCodeExpiry = null;
+      await user.save();
+
+      // Return token only for instant verification (within 5 minutes)
+      if (isInstantVerification) {
+        const authToken = generateToken(user._id.toString());
+        return res.json({ 
+          success: true, 
+          message: "Email verified successfully",
+          token: authToken,
+          autoLogin: true,
+          user: {
+            id: user._id,
+            email: user.email,
+            displayName: user.displayName,
+            photoURL: user.photoURL,
+            coverPhoto: user.coverPhoto,
+            isAdmin: user.isAdmin,
+            isSuperAdmin: user.isSuperAdmin,
+            isVerified: user.isVerified,
+            bio: user.bio,
+          }
+        });
+      } else {
+        return res.json({ 
+          success: true, 
+          message: "Email verified successfully. Please log in to continue.",
+          autoLogin: false
+        });
+      }
+    } catch (error) {
+      console.error("Email verification error:", error);
+      const msg = error instanceof Error ? error.message : "Verification failed";
+      return res.status(500).json({ error: msg });
+    }
+  },
+
+  async verifyEmailByCode(req: Request, res: Response) {
+    try {
+      const { email, code } = req.body;
+      if (!email || !code) {
+        return res.status(400).json({ error: "Email and verification code are required" });
+      }
+
+      const { User } = await import("../models/user.model");
+      const user = await User.findOne({ 
+        email,
+        verificationCode: code,
+        verificationCodeExpiry: { $gt: new Date() }
+      }).select("+verificationCode");
+
+      if (!user) {
+        return res.status(400).json({ error: "Invalid or expired verification code" });
+      }
+
+      if (user.isVerified) {
+        return res.status(400).json({ error: "Email already verified" });
+      }
+
+      // Calculate time difference between registration and verification
+      const now = new Date();
+      const registrationTime = user.createdAt;
+      const timeDifferenceMs = now.getTime() - registrationTime.getTime();
+      const timeDifferenceMinutes = timeDifferenceMs / (1000 * 60);
+      const isInstantVerification = timeDifferenceMinutes <= 5;
+
+      user.isVerified = true;
+      user.verificationToken = null;
+      user.verificationTokenExpiry = null;
+      user.verificationCode = null;
+      user.verificationCodeExpiry = null;
+      await user.save();
+
+      // Return token only for instant verification (within 5 minutes)
+      if (isInstantVerification) {
+        const authToken = generateToken(user._id.toString());
+        return res.json({ 
+          success: true, 
+          message: "Email verified successfully",
+          token: authToken,
+          autoLogin: true,
+          user: {
+            id: user._id,
+            email: user.email,
+            displayName: user.displayName,
+            photoURL: user.photoURL,
+            coverPhoto: user.coverPhoto,
+            isAdmin: user.isAdmin,
+            isSuperAdmin: user.isSuperAdmin,
+            isVerified: user.isVerified,
+            bio: user.bio,
+          }
+        });
+      } else {
+        return res.json({ 
+          success: true, 
+          message: "Email verified successfully. Please log in to continue.",
+          autoLogin: false
+        });
+      }
+    } catch (error) {
+      console.error("Email verification by code error:", error);
+      const msg = error instanceof Error ? error.message : "Verification failed";
+      return res.status(500).json({ error: msg });
     }
   },
 
@@ -155,8 +295,12 @@ export const authController = {
       }
       const result = await authService.loginLocal(identifier, password);
       res.json(result);
-    } catch (error) {
+    } catch (error: any) {
       const msg = error instanceof Error ? error.message : "Login failed";
+      // Preserve error code if it exists (e.g., EMAIL_NOT_VERIFIED)
+      if (error.code) {
+        return res.status(401).json({ error: msg, code: error.code });
+      }
       return res.status(401).json({ error: msg });
     }
   },

@@ -3,14 +3,13 @@ import { User } from "../models/user.model";
 import { validateObjectId } from "../utils/validation";
 
 // Standard population fields for user data
-const USER_FIELDS = "_id email displayName photoURL coverPhoto bio isProfileComplete isAdmin isSuperAdmin createdAt";
+const USER_FIELDS = "_id email displayName photoURL coverPhoto bio isAdmin isSuperAdmin createdAt";
 
 export interface UpdateProfileData {
   displayName?: string;
   bio?: string;
   photoURL?: string;
   coverPhoto?: string;
-  isProfileComplete?: boolean;
 }
 
 export const userService = {
@@ -109,7 +108,6 @@ export const userService = {
   }) {
       const newUser = new User({
         ...userData,
-        isProfileComplete: false,
       });
       await newUser.save();
       return newUser.toObject();

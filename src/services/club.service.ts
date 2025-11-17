@@ -24,7 +24,7 @@ export const clubService = {
 
     return User.findByIdAndUpdate(
       userId,
-      { clubs: clubIds, isProfileComplete: true },
+      { clubs: clubIds },
       { new: true }
     ).populate("clubs");
   },

@@ -45,11 +45,9 @@ CLIENT_URL=http://localhost:5173
 GOOGLE_CLIENT_ID=your_google_client_id_here
 GOOGLE_CLIENT_SECRET=your_google_client_secret_here
 
-# Email Configuration (development)
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_USER=your_email@gmail.com
-EMAIL_PASS=your_app_password_here
+# Email Configuration (development) - Resend
+RESEND_API_KEY=your_resend_api_key_here
+DOMAIN=malabonpickleballers.com
 
 # Development specific settings
 DEBUG=true
@@ -76,11 +74,9 @@ CLIENT_URL=https://malabon-pickleball-client.vercel.app
 GOOGLE_CLIENT_ID=your_production_google_client_id_here
 GOOGLE_CLIENT_SECRET=your_production_google_client_secret_here
 
-# Email Configuration (production)
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_USER=your_production_email@gmail.com
-EMAIL_PASS=your_production_app_password_here
+# Email Configuration (production) - Resend
+RESEND_API_KEY=your_production_resend_api_key_here
+DOMAIN=malabonpickleballers.com
 
 # Production specific settings
 DEBUG=false
