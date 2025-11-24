@@ -132,8 +132,8 @@ export const authService = {
     const ok = await verifyPassword(password, user.passwordHash);
     if (!ok) throw new Error("Invalid credentials");
 
-    // Check if user is verified
-    if (!user.isVerified) {
+    // Check if user is verified (skip for super admin)
+    if (!user.isSuperAdmin && !user.isVerified) {
       const error: any = new Error("Email not verified. Please verify your email before logging in.");
       error.code = "EMAIL_NOT_VERIFIED";
       throw error;
@@ -289,12 +289,16 @@ export const authService = {
         displayName: "Super Admin",
         isAdmin: true,
         isSuperAdmin: true,
+        isVerified: true, // Super admin doesn't need email verification
       });
-    } else if (!superAdmin.isSuperAdmin) {
-      // Ensure super admin privileges
-      superAdmin.isSuperAdmin = true;
-      superAdmin.isAdmin = true;
-      await superAdmin.save();
+    } else {
+      // Ensure super admin privileges and verified status
+      if (!superAdmin.isSuperAdmin || !superAdmin.isVerified) {
+        superAdmin.isSuperAdmin = true;
+        superAdmin.isAdmin = true;
+        superAdmin.isVerified = true; // Super admin doesn't need email verification
+        await superAdmin.save();
+      }
     }
 
     return {
@@ -317,6 +321,7 @@ export const authService = {
         photoURL: superAdmin.photoURL,
         isAdmin: superAdmin.isAdmin,
         isSuperAdmin: superAdmin.isSuperAdmin,
+        isVerified: superAdmin.isVerified || true, // Super admin is always verified
         bio: superAdmin.bio,
         coverPhoto: superAdmin.coverPhoto,
       },

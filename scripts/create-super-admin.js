@@ -31,6 +31,7 @@ async function createSuperAdmin(email, displayName) {
       // Update existing user
       user.isAdmin = true;
       user.isSuperAdmin = true;
+      user.isVerified = true; // Super admin doesn't need email verification
       user.displayName = displayName;
       await user.save();
       console.log('Existing user updated with super admin privileges');
@@ -43,6 +44,7 @@ async function createSuperAdmin(email, displayName) {
       displayName,
       isAdmin: true,
       isSuperAdmin: true,
+      isVerified: true, // Super admin doesn't need email verification
       photoURL: null
     });
     
