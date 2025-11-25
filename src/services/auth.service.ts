@@ -6,10 +6,10 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import dotenv from "dotenv";
 import path from "path";
-import { hashPassword, verifyPassword } from "../utils/password";
-import { User as UserModel } from "../models/user.model";
+import { verifyPassword } from "../utils/password";
+import { userService } from "./user.service";
 import { emailService } from "./email.service";
-import { validatePhilippinesPhoneNumber } from "../utils/validation";
+import { formatUserResponse, createAuthResponse, AuthResponse } from "../utils/userResponse";
 
 // Ensure env is loaded even if this module is imported before index.ts calls dotenv.config
 if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
@@ -39,98 +39,65 @@ if (isProduction && (!SUPER_ADMIN_USERNAME || !SUPER_ADMIN_PASSWORD)) {
   throw new Error("SUPER_ADMIN credentials must be set in production");
 }
 
-// Google credentials are validated lazily when needed via getEnv()
-
 function getOAuthClient() {
   const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, REDIRECT_URI } = getEnv();
   return new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, REDIRECT_URI);
 }
 
 const SCOPES = [
-      "https://www.googleapis.com/auth/userinfo.email",
-      "https://www.googleapis.com/auth/userinfo.profile",
-    ];
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+];
 
 export const authService = {
-  async registerLocal(input: { username: string; password: string; firstName: string; lastName: string; phoneNumber?: string; email: string }) {
-    const { username, password, firstName, lastName, phoneNumber, email } = input;
+  // ============================================
+  // Local Authentication
+  // ============================================
 
-    // Validate email is provided and valid
-    if (!email || !email.includes("@")) {
-      throw new Error("Valid email address is required");
+  /**
+   * Registers a new local user. Delegates user creation to userService.
+   */
+  async registerLocal(input: {
+    username: string;
+    password: string;
+    firstName: string;
+    lastName: string;
+    phoneNumber?: string;
+    email: string;
+  }): Promise<AuthResponse> {
+    const result = await userService.createLocalUser(input);
+
+    // Send verification email (non-blocking)
+    const displayName = `${input.firstName} ${input.lastName}`.trim();
+    const user = await User.findOne({ email: input.email }).select("+verificationToken +verificationCode");
+    if (user) {
+      emailService.sendVerificationEmail(
+        input.email,
+        user.verificationToken!,
+        user.verificationCode!,
+        displayName
+      ).catch(err => console.error("Failed to send verification email:", err));
     }
 
-    // Validate phone number if provided (must be Philippines format)
-    if (phoneNumber && !validatePhilippinesPhoneNumber(phoneNumber)) {
-      throw new Error("Phone number must be in Philippines format (+639XXXXXXXXX or 09XXXXXXXXX)");
-    }
-
-    // Ensure uniqueness of username/email
-    const existing = await UserModel.findOne({ $or: [{ username }, { email }] });
-    if (existing) {
-      throw new Error("Username or email already in use");
-    }
-
-    const passwordHash = await hashPassword(password);
-    const displayName = `${firstName} ${lastName}`.trim();
-
-    // Generate verification token (for email link)
-    const verificationToken = crypto.randomBytes(32).toString("hex");
-    const verificationTokenExpiry = new Date();
-    verificationTokenExpiry.setHours(verificationTokenExpiry.getHours() + 24); // 24 hours from now
-
-    // Generate 6-digit verification code
-    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const verificationCodeExpiry = new Date();
-    verificationCodeExpiry.setHours(verificationCodeExpiry.getHours() + 24); // 24 hours from now
-
-    const user = await UserModel.create({
-      username,
-      email,
-      firstName,
-      lastName,
-      phoneNumber: phoneNumber || null,
-      passwordHash,
-      displayName,
-      isVerified: false,
-      verificationToken,
-      verificationTokenExpiry,
-      verificationCode,
-      verificationCodeExpiry,
-    } as any);
-
-    // Send verification email
-    try {
-      await emailService.sendVerificationEmail(email, verificationToken, verificationCode, displayName || firstName);
-    } catch (error) {
-      console.error("Failed to send verification email:", error);
-      // Don't fail registration if email fails, but log it
-    }
-
-    return {
-      token: generateToken(user._id.toString()),
-      user: {
-        id: user._id,
-        email: user.email,
-        displayName: user.displayName,
-        photoURL: user.photoURL,
-        coverPhoto: user.coverPhoto,
-        isAdmin: user.isAdmin,
-        isSuperAdmin: user.isSuperAdmin,
-        isVerified: user.isVerified,
-        bio: user.bio,
-      },
-    };
+    return result;
   },
 
-  async loginLocal(identifier: string, password: string) {
-    // identifier can be username or email
-    const user = await UserModel.findOne({ $or: [{ username: identifier }, { email: identifier }] }).select("+passwordHash email displayName photoURL coverPhoto isAdmin isSuperAdmin isVerified bio");
+  /**
+   * Authenticates a local user with username/email and password.
+   */
+  async loginLocal(identifier: string, password: string): Promise<AuthResponse> {
+    const user = await User.findOne({
+      $or: [{ username: identifier }, { email: identifier }],
+    }).select("+passwordHash email displayName photoURL coverPhoto isAdmin isSuperAdmin isVerified bio");
+
     if (!user || !user.passwordHash) {
       throw new Error("Invalid credentials");
     }
-    const ok = await verifyPassword(password, user.passwordHash);
-    if (!ok) throw new Error("Invalid credentials");
+
+    const isValid = await verifyPassword(password, user.passwordHash);
+    if (!isValid) {
+      throw new Error("Invalid credentials");
+    }
 
     // Check if user is verified (skip for super admin)
     if (!user.isSuperAdmin && !user.isVerified) {
@@ -139,34 +106,24 @@ export const authService = {
       throw error;
     }
 
-    return {
-      token: generateToken(user._id.toString()),
-      user: {
-        id: user._id,
-        email: user.email,
-        displayName: user.displayName,
-        photoURL: user.photoURL,
-        coverPhoto: user.coverPhoto,
-        isAdmin: user.isAdmin,
-        isSuperAdmin: user.isSuperAdmin,
-        isVerified: user.isVerified || false,
-        bio: user.bio,
-      },
-    };
+    return createAuthResponse(generateToken(user._id.toString()), user);
   },
+
+  // ============================================
+  // Google OAuth
+  // ============================================
+
   getGoogleAuthUrl(codeVerifier?: string) {
     const client = getOAuthClient();
-    const authUrl = client.generateAuthUrl({
+    return client.generateAuthUrl({
       access_type: "offline",
       scope: SCOPES,
       prompt: "consent",
       ...(codeVerifier && {
-      code_challenge_method: "S256" as any,
+        code_challenge_method: "S256" as any,
         code_challenge: this.generateCodeChallenge(codeVerifier),
       }),
     });
-
-    return authUrl;
   },
 
   generateCodeChallenge(verifier: string): string {
@@ -178,7 +135,7 @@ export const authService = {
       .replace(/=+$/, "");
   },
 
-  async exchangeCodeForToken(code: string, codeVerifier?: string) {
+  async exchangeCodeForToken(code: string, codeVerifier?: string): Promise<AuthResponse> {
     const tokenOptions: any = { code };
     if (codeVerifier) {
       tokenOptions.codeVerifier = codeVerifier;
@@ -216,46 +173,24 @@ export const authService = {
     }
   },
 
-  async handleGoogleSignIn(token: string) {
-      const googleUserInfo = await this.verifyGoogleToken(token);
+  /**
+   * Handles Google sign-in. Delegates user creation/lookup to userService.
+   */
+  async handleGoogleSignIn(token: string): Promise<AuthResponse> {
+    const googleUserInfo = await this.verifyGoogleToken(token);
 
-    // Find or create user
-      let user = await User.findOne({ email: googleUserInfo.email });
+    const { user } = await userService.findOrCreateGoogleUser({
+      email: googleUserInfo.email!,
+      name: googleUserInfo.name,
+      picture: googleUserInfo.picture,
+    });
 
-      if (!user) {
-      user = await User.create({
-            email: googleUserInfo.email,
-            displayName: googleUserInfo.name,
-        photoURL: null, // Never use Google profile picture
-            isVerified: true, // Google accounts are already verified
-          });
-    } else {
-      // Update display name if changed
-      if (googleUserInfo.name && user.displayName !== googleUserInfo.name) {
-        user.displayName = googleUserInfo.name;
-      }
-      // Ensure Google users are marked as verified (they're verified by Google)
-      if (!user.isVerified) {
-        user.isVerified = true;
-      }
-      await user.save();
-    }
-
-    return {
-      token: generateToken(user._id.toString()),
-      user: {
-        id: user._id,
-        email: user.email,
-        displayName: user.displayName,
-        photoURL: user.photoURL,
-        coverPhoto: user.coverPhoto,
-        isAdmin: user.isAdmin,
-        isSuperAdmin: user.isSuperAdmin,
-        isVerified: user.isVerified || true, // Google users are always verified
-        bio: user.bio,
-      },
-    };
+    return createAuthResponse(generateToken(user._id.toString()), user);
   },
+
+  // ============================================
+  // Session Management
+  // ============================================
 
   async logout(userId: string) {
     // For JWT, client-side token removal is sufficient
@@ -264,23 +199,15 @@ export const authService = {
 
   async getSession(userId: string) {
     const user = await User.findById(userId);
-
     if (!user) {
       return null;
     }
-
-    return {
-      id: user._id,
-      email: user.email,
-      displayName: user.displayName,
-      photoURL: user.photoURL,
-      coverPhoto: user.coverPhoto,
-      isAdmin: user.isAdmin,
-      isSuperAdmin: user.isSuperAdmin,
-      isVerified: user.isVerified || false,
-      bio: user.bio,
-    };
+    return formatUserResponse(user);
   },
+
+  // ============================================
+  // Super Admin Authentication
+  // ============================================
 
   async authenticateSuperAdmin(username: string, password: string) {
     if (username !== SUPER_ADMIN_USERNAME || password !== SUPER_ADMIN_PASSWORD) {
@@ -296,49 +223,38 @@ export const authService = {
         displayName: "Super Admin",
         isAdmin: true,
         isSuperAdmin: true,
-        isVerified: true, // Super admin doesn't need email verification
+        isVerified: true,
       });
-    } else {
-      // Ensure super admin privileges and verified status
-      if (!superAdmin.isSuperAdmin || !superAdmin.isVerified) {
-        superAdmin.isSuperAdmin = true;
-        superAdmin.isAdmin = true;
-        superAdmin.isVerified = true; // Super admin doesn't need email verification
-        await superAdmin.save();
-      }
+    } else if (!superAdmin.isSuperAdmin || !superAdmin.isVerified) {
+      superAdmin.isSuperAdmin = true;
+      superAdmin.isAdmin = true;
+      superAdmin.isVerified = true;
+      await superAdmin.save();
     }
 
-    return {
-      token: jwt.sign(
-        {
-          id: superAdmin._id,
-          email: superAdmin.email,
-          displayName: superAdmin.displayName,
-          photoURL: superAdmin.photoURL,
-          isAdmin: superAdmin.isAdmin,
-          isSuperAdmin: superAdmin.isSuperAdmin,
-        },
-        process.env.JWT_SECRET!,
-        { expiresIn: "24h" }
-      ),
-      user: {
+    // Super admin uses different token structure
+    const token = jwt.sign(
+      {
         id: superAdmin._id,
         email: superAdmin.email,
         displayName: superAdmin.displayName,
         photoURL: superAdmin.photoURL,
         isAdmin: superAdmin.isAdmin,
         isSuperAdmin: superAdmin.isSuperAdmin,
-        isVerified: superAdmin.isVerified || true, // Super admin is always verified
-        bio: superAdmin.bio,
-        coverPhoto: superAdmin.coverPhoto,
       },
-    };
+      process.env.JWT_SECRET!,
+      { expiresIn: "24h" }
+    );
+
+    return { token, user: formatUserResponse(superAdmin) };
   },
 
-  // Auth-specific validation methods
+  // ============================================
+  // Token Validation
+  // ============================================
+
   async validateToken(token: string) {
     try {
-      // Implement token validation logic
       return true;
     } catch (error) {
       return false;

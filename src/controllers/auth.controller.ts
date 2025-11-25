@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { authService } from "../services/auth.service";
+import { userService } from "../services/user.service";
 import { getAuthUser } from "../middleware/auth.middleware";
-import { generateToken } from "../utils/jwt";
 
 export const authController = {
   async initiateGoogleAuth(req: Request, res: Response) {
@@ -18,8 +18,6 @@ export const authController = {
     }
   },
 
-  // New: Backend handles Google's redirect URI. We then forward the user
-  // to the SPA callback route with the code (and optional state) preserved.
   async googleCallback(req: Request, res: Response) {
     try {
       const code = req.query.code as string | undefined;
@@ -66,7 +64,7 @@ export const authController = {
       if (!token) {
         return res.status(400).json({ error: "Token is required" });
       }
-      
+
       const result = await authService.handleGoogleSignIn(token);
       res.json(result);
     } catch (error) {
@@ -119,7 +117,7 @@ export const authController = {
     try {
       const { username, password } = req.body;
       const result = await authService.authenticateSuperAdmin(username, password);
-      
+
       if (!result) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
@@ -140,7 +138,14 @@ export const authController = {
       if (!username || !password || !firstName || !lastName || !email) {
         return res.status(400).json({ error: "Missing required fields" });
       }
-      const result = await authService.registerLocal({ username, password, firstName, lastName, phoneNumber, email });
+      const result = await authService.registerLocal({
+        username,
+        password,
+        firstName,
+        lastName,
+        phoneNumber,
+        email,
+      });
       res.json(result);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Registration failed";
@@ -148,6 +153,9 @@ export const authController = {
     }
   },
 
+  /**
+   * Verifies email using a token (link-based verification).
+   */
   async verifyEmail(req: Request, res: Response) {
     try {
       const { token } = req.query;
@@ -155,68 +163,23 @@ export const authController = {
         return res.status(400).json({ error: "Verification token is required" });
       }
 
-      const { User } = await import("../models/user.model");
-      const user = await User.findOne({ 
-        verificationToken: token,
-        verificationTokenExpiry: { $gt: new Date() }
-      }).select("+verificationToken");
-
+      const user = await userService.findUserByVerificationToken(token);
       if (!user) {
         return res.status(400).json({ error: "Invalid or expired verification token" });
       }
 
-      if (user.isVerified) {
-        return res.status(400).json({ error: "Email already verified" });
-      }
-
-      // Calculate time difference between registration and verification
-      const now = new Date();
-      const registrationTime = user.createdAt;
-      const timeDifferenceMs = now.getTime() - registrationTime.getTime();
-      const timeDifferenceMinutes = timeDifferenceMs / (1000 * 60);
-      const isInstantVerification = timeDifferenceMinutes <= 5;
-
-      user.isVerified = true;
-      user.verificationToken = null;
-      user.verificationTokenExpiry = null;
-      user.verificationCode = null;
-      user.verificationCodeExpiry = null;
-      await user.save();
-
-      // Return token only for instant verification (within 5 minutes)
-      if (isInstantVerification) {
-        const authToken = generateToken(user._id.toString());
-        return res.json({ 
-          success: true, 
-          message: "Email verified successfully",
-          token: authToken,
-          autoLogin: true,
-          user: {
-            id: user._id,
-            email: user.email,
-            displayName: user.displayName,
-            photoURL: user.photoURL,
-            coverPhoto: user.coverPhoto,
-            isAdmin: user.isAdmin,
-            isSuperAdmin: user.isSuperAdmin,
-            isVerified: user.isVerified,
-            bio: user.bio,
-          }
-        });
-      } else {
-        return res.json({ 
-          success: true, 
-          message: "Email verified successfully. Please log in to continue.",
-          autoLogin: false
-        });
-      }
+      const result = await userService.completeEmailVerification(user);
+      return res.json(result);
     } catch (error) {
       console.error("Email verification error:", error);
       const msg = error instanceof Error ? error.message : "Verification failed";
-      return res.status(500).json({ error: msg });
+      return res.status(error instanceof Error && error.message === "Email already verified" ? 400 : 500).json({ error: msg });
     }
   },
 
+  /**
+   * Verifies email using a 6-digit code.
+   */
   async verifyEmailByCode(req: Request, res: Response) {
     try {
       const { email, code } = req.body;
@@ -224,66 +187,17 @@ export const authController = {
         return res.status(400).json({ error: "Email and verification code are required" });
       }
 
-      const { User } = await import("../models/user.model");
-      const user = await User.findOne({ 
-        email,
-        verificationCode: code,
-        verificationCodeExpiry: { $gt: new Date() }
-      }).select("+verificationCode");
-
+      const user = await userService.findUserByVerificationCode(email, code);
       if (!user) {
         return res.status(400).json({ error: "Invalid or expired verification code" });
       }
 
-      if (user.isVerified) {
-        return res.status(400).json({ error: "Email already verified" });
-      }
-
-      // Calculate time difference between registration and verification
-      const now = new Date();
-      const registrationTime = user.createdAt;
-      const timeDifferenceMs = now.getTime() - registrationTime.getTime();
-      const timeDifferenceMinutes = timeDifferenceMs / (1000 * 60);
-      const isInstantVerification = timeDifferenceMinutes <= 5;
-
-      user.isVerified = true;
-      user.verificationToken = null;
-      user.verificationTokenExpiry = null;
-      user.verificationCode = null;
-      user.verificationCodeExpiry = null;
-      await user.save();
-
-      // Return token only for instant verification (within 5 minutes)
-      if (isInstantVerification) {
-        const authToken = generateToken(user._id.toString());
-        return res.json({ 
-          success: true, 
-          message: "Email verified successfully",
-          token: authToken,
-          autoLogin: true,
-          user: {
-            id: user._id,
-            email: user.email,
-            displayName: user.displayName,
-            photoURL: user.photoURL,
-            coverPhoto: user.coverPhoto,
-            isAdmin: user.isAdmin,
-            isSuperAdmin: user.isSuperAdmin,
-            isVerified: user.isVerified,
-            bio: user.bio,
-          }
-        });
-      } else {
-        return res.json({ 
-          success: true, 
-          message: "Email verified successfully. Please log in to continue.",
-          autoLogin: false
-        });
-      }
+      const result = await userService.completeEmailVerification(user);
+      return res.json(result);
     } catch (error) {
       console.error("Email verification by code error:", error);
       const msg = error instanceof Error ? error.message : "Verification failed";
-      return res.status(500).json({ error: msg });
+      return res.status(error instanceof Error && error.message === "Email already verified" ? 400 : 500).json({ error: msg });
     }
   },
 
