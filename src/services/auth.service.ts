@@ -227,12 +227,19 @@ export const authService = {
             email: googleUserInfo.email,
             displayName: googleUserInfo.name,
         photoURL: null, // Never use Google profile picture
+            isVerified: true, // Google accounts are already verified
           });
-    } else if (googleUserInfo.name && user.displayName !== googleUserInfo.name) {
+    } else {
       // Update display name if changed
+      if (googleUserInfo.name && user.displayName !== googleUserInfo.name) {
         user.displayName = googleUserInfo.name;
-          await user.save();
       }
+      // Ensure Google users are marked as verified (they're verified by Google)
+      if (!user.isVerified) {
+        user.isVerified = true;
+      }
+      await user.save();
+    }
 
     return {
       token: generateToken(user._id.toString()),
@@ -244,7 +251,7 @@ export const authService = {
         coverPhoto: user.coverPhoto,
         isAdmin: user.isAdmin,
         isSuperAdmin: user.isSuperAdmin,
-        isVerified: user.isVerified || false,
+        isVerified: user.isVerified || true, // Google users are always verified
         bio: user.bio,
       },
     };
