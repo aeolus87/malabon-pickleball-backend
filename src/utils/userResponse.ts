@@ -1,6 +1,8 @@
 // src/utils/userResponse.ts
 // Centralized user response formatting to eliminate duplication
 
+import { UserRole, ICoachProfile } from "../models/user.model";
+
 export interface UserResponse {
   id: string;
   email: string;
@@ -11,6 +13,19 @@ export interface UserResponse {
   isSuperAdmin: boolean;
   isVerified: boolean;
   bio: string | null;
+  role: UserRole;
+  coachProfile?: ICoachProfile;
+  isPublicProfile: boolean;
+}
+
+export interface PublicUserResponse {
+  id: string;
+  displayName: string | null;
+  photoURL: string | null;
+  coverPhoto: string | null;
+  bio: string | null;
+  role: UserRole;
+  coachProfile?: ICoachProfile;
 }
 
 export interface AuthResponse {
@@ -32,6 +47,22 @@ export const formatUserResponse = (user: any): UserResponse => ({
   isSuperAdmin: user.isSuperAdmin || false,
   isVerified: user.isVerified || false,
   bio: user.bio || null,
+  role: user.role || "player",
+  coachProfile: user.coachProfile || undefined,
+  isPublicProfile: user.isPublicProfile !== false,
+});
+
+/**
+ * Formats a user document for public viewing (no sensitive info).
+ */
+export const formatPublicUserResponse = (user: any): PublicUserResponse => ({
+  id: user._id?.toString() || user.id,
+  displayName: user.displayName || null,
+  photoURL: user.photoURL || null,
+  coverPhoto: user.coverPhoto || null,
+  bio: user.bio || null,
+  role: user.role || "player",
+  coachProfile: user.role === "coach" ? user.coachProfile : undefined,
 });
 
 /**
@@ -41,4 +72,3 @@ export const createAuthResponse = (token: string, user: any): AuthResponse => ({
   token,
   user: formatUserResponse(user),
 });
-

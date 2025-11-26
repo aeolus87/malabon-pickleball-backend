@@ -1,4 +1,5 @@
 import { Document } from "mongoose";
+import { UserRole, ICoachProfile } from "../models/user.model";
 
 export interface IUser {
   id: string;
@@ -10,6 +11,9 @@ export interface IUser {
   isSuperAdmin: boolean;
   isVerified: boolean;
   bio: string | null;
+  role: UserRole;
+  coachProfile?: ICoachProfile;
+  isPublicProfile: boolean;
 }
 
 declare global {

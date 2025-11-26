@@ -180,4 +180,120 @@ export const userController = {
       res.status(500).json({ error: "Failed to delete user account" });
     }
   },
+
+  // ============================================
+  // Search and Public Profile Endpoints
+  // ============================================
+
+  async searchUsers(req: Request, res: Response) {
+    try {
+      const { q, limit } = req.query;
+
+      if (!q || typeof q !== "string") {
+        return res.status(400).json({ error: "Search query 'q' is required" });
+      }
+
+      const users = await userService.searchUsers(
+        q,
+        limit ? parseInt(limit as string) : 10
+      );
+
+      res.json(users);
+    } catch (error) {
+      console.error("Error searching users:", error);
+      res.status(500).json({ error: "Failed to search users" });
+    }
+  },
+
+  async getPublicProfile(req: Request, res: Response) {
+    try {
+      const { userId } = req.params;
+      const profile = await userService.getPublicProfile(userId);
+
+      if (!profile) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if ("private" in profile) {
+        return res.status(403).json({ error: "This profile is private" });
+      }
+
+      res.json(profile);
+    } catch (error) {
+      console.error("Error fetching public profile:", error);
+      res.status(500).json({ error: "Failed to fetch profile" });
+    }
+  },
+
+  // ============================================
+  // Coach Endpoints
+  // ============================================
+
+  async getAllCoaches(req: Request, res: Response) {
+    try {
+      const coaches = await userService.getAllCoaches();
+      res.json(coaches);
+    } catch (error) {
+      console.error("Error fetching coaches:", error);
+      res.status(500).json({ error: "Failed to fetch coaches" });
+    }
+  },
+
+  async updateCoachProfile(req: Request, res: Response) {
+    try {
+      const user = getUser(req);
+      const { bio, specialization, isAvailable } = req.body;
+
+      // Check if user is a coach
+      if (user.role !== "coach") {
+        return res.status(403).json({ error: "Only coaches can update coach profile" });
+      }
+
+      const updated = await userService.updateCoachProfile(user.id, {
+        bio,
+        specialization,
+        isAvailable,
+      });
+
+      if (!updated) {
+        return res.status(404).json({ error: "User not found or not a coach" });
+      }
+
+      res.json({ user: updated });
+    } catch (error) {
+      console.error("Error updating coach profile:", error);
+      res.status(500).json({ error: "Failed to update coach profile" });
+    }
+  },
+
+  async setUserRole(req: Request, res: Response) {
+    try {
+      const { userId } = req.params;
+      const { role } = req.body;
+
+      const validRoles = ["player", "coach", "admin", "superadmin"];
+      if (!role || !validRoles.includes(role)) {
+        return res.status(400).json({ error: "Invalid role" });
+      }
+
+      const updated = await userService.setUserRole(userId, role);
+
+      if (!updated) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      res.json({
+        message: "User role updated successfully",
+        user: {
+          id: updated._id,
+          email: updated.email,
+          displayName: updated.displayName,
+          role: updated.role,
+        },
+      });
+    } catch (error) {
+      console.error("Error setting user role:", error);
+      res.status(500).json({ error: "Failed to set user role" });
+    }
+  },
 };

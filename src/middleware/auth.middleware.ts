@@ -40,6 +40,9 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
       isSuperAdmin: user.isSuperAdmin,
       isVerified: user.isVerified || false,
       bio: user.bio,
+      role: user.role || "player",
+      coachProfile: user.coachProfile,
+      isPublicProfile: user.isPublicProfile !== false,
     };
 
     next();

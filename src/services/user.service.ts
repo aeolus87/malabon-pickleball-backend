@@ -294,4 +294,125 @@ export const userService = {
     await newUser.save();
     return newUser.toObject();
   },
+
+  // ============================================
+  // Search and Public Profile Methods
+  // ============================================
+
+  /**
+   * Search users by name (display name)
+   */
+  async searchUsers(query: string, limit: number = 10) {
+    if (!query || query.trim().length < 2) {
+      return [];
+    }
+
+    const searchRegex = new RegExp(query.trim(), "i");
+    
+    return User.find({
+      displayName: searchRegex,
+      isPublicProfile: { $ne: false },
+    })
+      .select("_id displayName photoURL role coachProfile bio")
+      .limit(limit)
+      .lean();
+  },
+
+  /**
+   * Get public profile of a user
+   */
+  async getPublicProfile(userId: string) {
+    if (!validateObjectId(userId)) return null;
+
+    const user = await User.findById(userId)
+      .select("_id displayName photoURL coverPhoto bio role coachProfile isPublicProfile")
+      .lean();
+
+    if (!user) return null;
+
+    // Check if profile is public
+    if (user.isPublicProfile === false) {
+      return { private: true };
+    }
+
+    return user;
+  },
+
+  // ============================================
+  // Coach-specific Methods
+  // ============================================
+
+  /**
+   * Get all coaches
+   */
+  async getAllCoaches() {
+    return User.find({
+      role: "coach",
+      isPublicProfile: { $ne: false },
+    })
+      .select("_id displayName photoURL bio role coachProfile")
+      .sort({ displayName: 1 })
+      .lean();
+  },
+
+  /**
+   * Update coach profile
+   */
+  async updateCoachProfile(userId: string, updates: {
+    bio?: string;
+    specialization?: string;
+    isAvailable?: boolean;
+  }) {
+    if (!validateObjectId(userId)) return null;
+
+    const user = await User.findById(userId);
+    if (!user || user.role !== "coach") {
+      return null;
+    }
+
+    // Initialize coach profile if it doesn't exist
+    if (!user.coachProfile) {
+      user.coachProfile = { isAvailable: true };
+    }
+
+    // Update only provided fields
+    if (updates.bio !== undefined) user.coachProfile.bio = updates.bio;
+    if (updates.specialization !== undefined) user.coachProfile.specialization = updates.specialization;
+    if (updates.isAvailable !== undefined) user.coachProfile.isAvailable = updates.isAvailable;
+
+    await user.save();
+    return user;
+  },
+
+  /**
+   * Set user role (admin only)
+   */
+  async setUserRole(userId: string, role: "player" | "coach" | "admin" | "superadmin") {
+    if (!validateObjectId(userId)) return null;
+
+    const user = await User.findById(userId);
+    if (!user) return null;
+
+    user.role = role;
+
+    // Initialize coach profile if becoming a coach
+    if (role === "coach" && !user.coachProfile) {
+      user.coachProfile = {
+        bio: undefined,
+        specialization: undefined,
+        isAvailable: true,
+      };
+    }
+
+    // Update isAdmin flags based on role
+    if (role === "admin" || role === "superadmin") {
+      user.isAdmin = true;
+    }
+    if (role === "superadmin") {
+      user.isSuperAdmin = true;
+    }
+
+    await user.save();
+    return user;
+  },
 };

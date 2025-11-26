@@ -1,6 +1,16 @@
 // src/models/user.model.ts
 import mongoose, { Document, Schema } from "mongoose";
 
+// User roles
+export type UserRole = "player" | "coach" | "admin" | "superadmin";
+
+// Coach profile sub-document
+export interface ICoachProfile {
+  bio?: string;
+  specialization?: string;
+  isAvailable: boolean;
+}
+
 export interface IUser extends Document {
   googleId?: string;
   email: string;
@@ -21,9 +31,22 @@ export interface IUser extends Document {
   verificationCodeExpiry?: Date | null;
   bio: string | null;
   clubs: mongoose.Types.ObjectId[];
+  // New fields
+  role: UserRole;
+  coachProfile?: ICoachProfile;
+  isPublicProfile: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
+
+const coachProfileSchema = new Schema<ICoachProfile>(
+  {
+    bio: { type: String, default: null },
+    specialization: { type: String, default: null },
+    isAvailable: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
 
 const userSchema = new Schema<IUser>({
   email: {
@@ -96,6 +119,20 @@ const userSchema = new Schema<IUser>({
       ref: "Club",
     },
   ],
+  // New fields
+  role: {
+    type: String,
+    enum: ["player", "coach", "admin", "superadmin"],
+    default: "player",
+  },
+  coachProfile: {
+    type: coachProfileSchema,
+    default: null,
+  },
+  isPublicProfile: {
+    type: Boolean,
+    default: true,
+  },
   createdAt: {
     type: Date,
     default: Date.now,
