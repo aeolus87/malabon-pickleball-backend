@@ -7,7 +7,7 @@ import { generateToken } from "../utils/jwt";
 import { formatUserResponse, createAuthResponse, AuthResponse } from "../utils/userResponse";
 
 // Standard population fields for user data
-const USER_FIELDS = "_id email displayName photoURL coverPhoto bio isAdmin isSuperAdmin isVerified createdAt";
+const USER_FIELDS = "_id email displayName photoURL coverPhoto bio isAdmin isSuperAdmin isVerified role coachProfile createdAt";
 
 export interface UpdateProfileData {
   displayName?: string;

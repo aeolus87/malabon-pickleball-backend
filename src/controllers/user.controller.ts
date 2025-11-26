@@ -144,6 +144,7 @@ export const userController = {
           photoURL: user.photoURL,
           isAdmin: user.isAdmin,
           isSuperAdmin: user.isSuperAdmin,
+          role: user.role || "player",
           createdAt: user.createdAt,
         }))
       );
@@ -268,12 +269,18 @@ export const userController = {
 
   async setUserRole(req: Request, res: Response) {
     try {
+      const currentUser = getUser(req);
       const { userId } = req.params;
       const { role } = req.body;
 
       const validRoles = ["player", "coach", "admin", "superadmin"];
       if (!role || !validRoles.includes(role)) {
         return res.status(400).json({ error: "Invalid role" });
+      }
+
+      // Only super admins can set admin or superadmin roles
+      if ((role === "admin" || role === "superadmin") && !currentUser.isSuperAdmin) {
+        return res.status(403).json({ error: "Only super admins can grant admin roles" });
       }
 
       const updated = await userService.setUserRole(userId, role);
