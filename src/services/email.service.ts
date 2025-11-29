@@ -303,6 +303,320 @@ class EmailService {
     });
   }
 
+  async sendPasswordResetEmail(email: string, token: string, name: string): Promise<boolean> {
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+    const resetLink = `${clientUrl}/reset-password?token=${token}`;
+
+    const subject = 'Reset Your Password - Malabon Pickleball';
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Reset Your Password</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #1f2937;
+            background-color: #f0fdf4;
+          }
+          .email-wrapper {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+          }
+          .header {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            padding: 48px 40px 40px;
+            text-align: center;
+          }
+          .logo {
+            font-size: 32px;
+            font-weight: 700;
+            color: #ffffff;
+            letter-spacing: -0.5px;
+            margin-bottom: 8px;
+          }
+          .logo-subtitle {
+            font-size: 15px;
+            color: rgba(255, 255, 255, 0.95);
+            font-weight: 400;
+          }
+          .content { padding: 48px 40px; }
+          .title {
+            font-size: 26px;
+            font-weight: 700;
+            color: #065f46;
+            margin-bottom: 20px;
+          }
+          .greeting {
+            font-size: 16px;
+            color: #374151;
+            margin-bottom: 36px;
+            line-height: 1.7;
+          }
+          .button-container {
+            text-align: center;
+            margin: 36px 0;
+          }
+          .button {
+            display: inline-block;
+            padding: 16px 40px;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: #ffffff !important;
+            text-decoration: none;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 16px;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+          }
+          .link-section {
+            background: #f0fdf4;
+            border: 1px solid #d1fae5;
+            border-radius: 12px;
+            padding: 24px;
+            margin: 28px 0;
+          }
+          .link-label {
+            font-size: 13px;
+            color: #047857;
+            margin-bottom: 10px;
+            font-weight: 600;
+          }
+          .link {
+            color: #059669;
+            word-break: break-all;
+            font-size: 13px;
+            text-decoration: none;
+            font-weight: 500;
+          }
+          .disclaimer {
+            font-size: 13px;
+            color: #6b7280;
+            margin-top: 36px;
+            padding-top: 28px;
+            border-top: 1px solid #d1fae5;
+            line-height: 1.6;
+          }
+          .footer {
+            background: #f0fdf4;
+            padding: 36px 40px;
+            text-align: center;
+            border-top: 1px solid #d1fae5;
+          }
+          .footer-text {
+            font-size: 14px;
+            color: #047857;
+            line-height: 1.7;
+            margin-bottom: 10px;
+            font-weight: 500;
+          }
+          @media only screen and (max-width: 600px) {
+            .content { padding: 36px 24px; }
+            .header { padding: 40px 24px 32px; }
+            .footer { padding: 28px 24px; }
+            .title { font-size: 24px; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="email-wrapper">
+          <div class="header">
+            <div class="logo">Malabon Pickleball</div>
+            <div class="logo-subtitle">Community & Venues</div>
+          </div>
+          
+          <div class="content">
+            <h1 class="title">Reset Your Password</h1>
+            
+            <p class="greeting">
+              Hi ${name || 'there'},<br><br>
+              We received a request to reset your password. Click the button below to create a new password.
+            </p>
+            
+            <div class="button-container">
+              <a href="${resetLink}" class="button" style="color: #ffffff; text-decoration: none;">Reset Password</a>
+            </div>
+            
+            <div class="link-section">
+              <div class="link-label">Or copy this link:</div>
+              <a href="${resetLink}" class="link">${resetLink}</a>
+            </div>
+            
+            <p class="disclaimer">
+              If you didn't request a password reset, please ignore this email. This link will expire in 1 hour for security reasons.
+            </p>
+          </div>
+          
+          <div class="footer">
+            <p class="footer-text">Need help? Contact us anytime.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    return this.sendEmail({ to: email, subject, html });
+  }
+
+  async sendUnlockEmail(email: string, code: string, name: string): Promise<boolean> {
+    const subject = 'Unlock Your Account - Malabon Pickleball';
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Unlock Your Account</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #1f2937;
+            background-color: #fef2f2;
+          }
+          .email-wrapper {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+          }
+          .header {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            padding: 48px 40px 40px;
+            text-align: center;
+          }
+          .logo {
+            font-size: 32px;
+            font-weight: 700;
+            color: #ffffff;
+            letter-spacing: -0.5px;
+            margin-bottom: 8px;
+          }
+          .logo-subtitle {
+            font-size: 15px;
+            color: rgba(255, 255, 255, 0.95);
+            font-weight: 400;
+          }
+          .content { padding: 48px 40px; }
+          .title {
+            font-size: 26px;
+            font-weight: 700;
+            color: #991b1b;
+            margin-bottom: 20px;
+          }
+          .greeting {
+            font-size: 16px;
+            color: #374151;
+            margin-bottom: 36px;
+            line-height: 1.7;
+          }
+          .code-container {
+            background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+            border: 2px solid #ef4444;
+            border-radius: 16px;
+            padding: 36px 28px;
+            text-align: center;
+            margin: 36px 0;
+            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.1);
+          }
+          .code-label {
+            font-size: 12px;
+            color: #b91c1c;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 700;
+            margin-bottom: 20px;
+          }
+          .code {
+            font-size: 40px;
+            font-weight: 700;
+            color: #dc2626;
+            letter-spacing: 10px;
+            font-family: 'Courier New', monospace;
+            margin: 12px 0;
+            line-height: 1.2;
+          }
+          .code-expiry {
+            font-size: 13px;
+            color: #b91c1c;
+            margin-top: 16px;
+            font-weight: 500;
+          }
+          .disclaimer {
+            font-size: 13px;
+            color: #6b7280;
+            margin-top: 36px;
+            padding-top: 28px;
+            border-top: 1px solid #fee2e2;
+            line-height: 1.6;
+          }
+          .footer {
+            background: #fef2f2;
+            padding: 36px 40px;
+            text-align: center;
+            border-top: 1px solid #fee2e2;
+          }
+          .footer-text {
+            font-size: 14px;
+            color: #b91c1c;
+            line-height: 1.7;
+            margin-bottom: 10px;
+            font-weight: 500;
+          }
+          @media only screen and (max-width: 600px) {
+            .content { padding: 36px 24px; }
+            .header { padding: 40px 24px 32px; }
+            .footer { padding: 28px 24px; }
+            .title { font-size: 24px; }
+            .code { font-size: 32px; letter-spacing: 8px; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="email-wrapper">
+          <div class="header">
+            <div class="logo">Malabon Pickleball</div>
+            <div class="logo-subtitle">Account Security</div>
+          </div>
+          
+          <div class="content">
+            <h1 class="title">Unlock Your Account</h1>
+            
+            <p class="greeting">
+              Hi ${name || 'there'},<br><br>
+              Your account has been temporarily locked due to multiple failed login attempts. Use the code below to unlock your account.
+            </p>
+            
+            <div class="code-container">
+              <div class="code-label">Unlock Code</div>
+              <div class="code">${code}</div>
+              <div class="code-expiry">This code will expire in 5 minutes</div>
+            </div>
+            
+            <p class="disclaimer">
+              If you didn't attempt to log in, someone may be trying to access your account. We recommend changing your password after unlocking your account.
+            </p>
+          </div>
+          
+          <div class="footer">
+            <p class="footer-text">Need help? Contact us anytime.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    return this.sendEmail({ to: email, subject, html });
+  }
+
   async sendAttendanceConfirmation(
     userEmail: string,
     userName: string,
@@ -341,7 +655,7 @@ class EmailService {
           .logo {
             font-size: 24px;
             font-weight: bold;
-            color: #2563eb;
+            color:rgb(21, 22, 23);
             margin-bottom: 10px;
           }
           .title {
@@ -387,8 +701,7 @@ class EmailService {
       <body>
         <div class="container">
           <div class="header">
-            <div class="logo">Malabon Pickleball</div>
-            <div class="emoji">🏓</div>
+            <div class="logo">Malabon Pickleball Center</div>
           </div>
           
           <div class="title">You're all set!</div>

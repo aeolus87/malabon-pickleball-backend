@@ -2,6 +2,7 @@
 import { Session, ISession } from "../models/session.model";
 import { User } from "../models/user.model";
 import { validateObjectId } from "../utils/validation";
+import { emailService } from "./email.service";
 import mongoose from "mongoose";
 
 // Population fields
@@ -44,11 +45,11 @@ export const sessionService = {
     }
 
     if (filters.date) {
-      // Get sessions for a specific date
+      // Get sessions for a specific date (UTC-based to avoid timezone issues)
       const startOfDay = new Date(filters.date);
-      startOfDay.setHours(0, 0, 0, 0);
+      startOfDay.setUTCHours(0, 0, 0, 0);
       const endOfDay = new Date(filters.date);
-      endOfDay.setHours(23, 59, 59, 999);
+      endOfDay.setUTCHours(23, 59, 59, 999);
       query.date = { $gte: startOfDay, $lte: endOfDay };
     } else if (filters.startDate || filters.endDate) {
       query.date = {};
@@ -177,7 +178,7 @@ export const sessionService = {
       return null;
     }
 
-    const session = await Session.findById(sessionId);
+    const session = await Session.findById(sessionId).populate("venueId", "name");
     if (!session) {
       throw new Error("Session not found");
     }
@@ -190,6 +191,16 @@ export const sessionService = {
       throw new Error("Session is full");
     }
 
+    // Check if session has ended
+    const now = new Date();
+    const sessionDate = new Date(session.date);
+    const [endHours, endMinutes] = session.endTime.split(":").map(Number);
+    const sessionEndTime = new Date(sessionDate);
+    sessionEndTime.setHours(endHours, endMinutes, 0, 0);
+    if (now > sessionEndTime) {
+      throw new Error("Cannot attend a session that has already ended");
+    }
+
     // Check if already attending
     const userObjectId = new mongoose.Types.ObjectId(userId);
     if (session.attendees.some((a) => a.equals(userObjectId))) {
@@ -198,6 +209,27 @@ export const sessionService = {
 
     session.attendees.push(userObjectId);
     await session.save();
+
+    // Send confirmation email (non-blocking)
+    const user = await User.findById(userId).select("email displayName emailNotifications");
+    if (user && user.emailNotifications !== false) {
+      const venue = session.venueId as any;
+      const sessionDate = new Date(session.date).toLocaleDateString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+      const timeRange = `${session.startTime} - ${session.endTime}`;
+      const dateDisplay = `${sessionDate} • ${timeRange}`;
+
+      emailService.sendAttendanceConfirmation(
+        user.email,
+        user.displayName || "Player",
+        venue?.name || "Pickleball Session",
+        dateDisplay
+      ).catch(err => console.error("Failed to send attendance confirmation:", err));
+    }
 
     return this.getSessionById(sessionId);
   },
@@ -270,12 +302,15 @@ export const sessionService = {
   },
 
   /**
-   * Get upcoming sessions
+   * Get upcoming sessions (includes today's sessions)
    */
   async getUpcomingSessions(limit: number = 10) {
-    const now = new Date();
+    // Use start of today (UTC) so today's sessions are included
+    const startOfToday = new Date();
+    startOfToday.setUTCHours(0, 0, 0, 0);
+    
     return Session.find({
-      date: { $gte: now },
+      date: { $gte: startOfToday },
       status: { $ne: "cancelled" },
     })
       .populate("venueId", VENUE_FIELDS)
@@ -286,5 +321,7 @@ export const sessionService = {
       .lean();
   },
 };
+
+
 
 

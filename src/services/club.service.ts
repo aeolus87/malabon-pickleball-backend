@@ -8,8 +8,25 @@ const CLUB_FIELDS = "_id name description logo createdAt updatedAt";
 const USER_FIELDS = "_id displayName photoURL email";
 
 export const clubService = {
-  async getAllClubs() {
-    return Club.find().select(CLUB_FIELDS).lean();
+  async getAllClubs(page: number = 1, limit: number = 50) {
+    const safeLimit = Math.min(Math.max(1, limit), 100);
+    const safePage = Math.max(1, page);
+    const skip = (safePage - 1) * safeLimit;
+
+    const [clubs, total] = await Promise.all([
+      Club.find().select(CLUB_FIELDS).skip(skip).limit(safeLimit).lean(),
+      Club.countDocuments(),
+    ]);
+
+    return {
+      clubs,
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
   },
 
   async createClub(name: string, description: string, logo?: string) {

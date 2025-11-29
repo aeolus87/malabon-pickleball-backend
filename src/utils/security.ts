@@ -3,7 +3,23 @@
  */
 
 /**
+ * HTML entity encode special characters for XSS prevention
+ * This preserves the original characters but encodes them safely
+ */
+export const encodeHtmlEntities = (input: string): string => {
+  if (!input || typeof input !== 'string') return '';
+  
+  return input
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+};
+
+/**
  * Sanitize string input to prevent XSS and injection attacks
+ * NOTE: This preserves quotes to allow names like O'Brien
  */
 export const sanitizeInput = (input: string): string => {
   if (!input || typeof input !== 'string') return '';
@@ -12,7 +28,6 @@ export const sanitizeInput = (input: string): string => {
     .replace(/[<>]/g, '') // Remove < and > to prevent HTML/script injection
     .replace(/javascript:/gi, '') // Remove javascript: protocol
     .replace(/on\w+=/gi, '') // Remove event handlers like onclick=
-    .replace(/['"]/g, '') // Remove quotes that could break SQL/JSON
     .trim();
 };
 

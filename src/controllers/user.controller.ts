@@ -22,8 +22,12 @@ export const userController = {
       }
 
       res.json({ user: updatedProfile });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating user profile:", error);
+      // Return validation errors with 400 status
+      if (error.message?.includes("Invalid")) {
+        return res.status(400).json({ error: error.message });
+      }
       res.status(500).json({ error: "Failed to update user profile" });
     }
   },
@@ -134,10 +138,13 @@ export const userController = {
 
   async getAllUsers(req: Request, res: Response) {
     try {
-      const users = await userService.getAllUsers();
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+      
+      const result = await userService.getAllUsers(page, limit);
 
-      res.json(
-        users.map((user) => ({
+      res.json({
+        users: result.users.map((user) => ({
           id: user._id,
           email: user.email,
           displayName: user.displayName,
@@ -146,8 +153,9 @@ export const userController = {
           isSuperAdmin: user.isSuperAdmin,
           role: user.role || "player",
           createdAt: user.createdAt,
-        }))
-      );
+        })),
+        pagination: result.pagination,
+      });
     } catch (error) {
       console.error("Error fetching all users:", error);
       res.status(500).json({ error: "Failed to fetch users" });
@@ -164,16 +172,19 @@ export const userController = {
         return res.status(400).json({ error: "Cannot delete your own account" });
       }
 
-      const deletedUser = await userService.deleteUser(userId);
-
-      if (!deletedUser) {
+      // Check if target user exists and is not a super admin BEFORE deletion
+      const targetUser = await userService.findUserById(userId);
+      
+      if (!targetUser) {
         return res.status(404).json({ error: "User not found" });
       }
 
       // Don't allow deletion of super admins
-      if (deletedUser.isSuperAdmin) {
+      if (targetUser.isSuperAdmin) {
         return res.status(403).json({ error: "Cannot delete a super admin account" });
       }
+
+      await userService.deleteUser(userId);
 
       res.json({ message: "User account deleted successfully" });
     } catch (error) {
@@ -232,8 +243,11 @@ export const userController = {
 
   async getAllCoaches(req: Request, res: Response) {
     try {
-      const coaches = await userService.getAllCoaches();
-      res.json(coaches);
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+      
+      const result = await userService.getAllCoaches(page, limit);
+      res.json(result);
     } catch (error) {
       console.error("Error fetching coaches:", error);
       res.status(500).json({ error: "Failed to fetch coaches" });

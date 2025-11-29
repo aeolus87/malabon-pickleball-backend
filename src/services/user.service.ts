@@ -1,13 +1,47 @@
 // src/services/user.service.ts
 import crypto from "crypto";
 import { User } from "../models/user.model";
-import { validateObjectId, validatePhilippinesPhoneNumber } from "../utils/validation";
+import { validateObjectId, validatePhilippinesPhoneNumber, validatePassword } from "../utils/validation";
 import { hashPassword } from "../utils/password";
 import { generateToken } from "../utils/jwt";
 import { formatUserResponse, createAuthResponse, AuthResponse } from "../utils/userResponse";
 
 // Standard population fields for user data
 const USER_FIELDS = "_id email displayName photoURL coverPhoto bio isAdmin isSuperAdmin isVerified role coachProfile createdAt";
+
+// Allowed domains for profile image URLs
+const ALLOWED_IMAGE_DOMAINS = [
+  "res.cloudinary.com",
+  "cloudinary.com",
+  "lh3.googleusercontent.com", // Google profile pics (legacy support)
+];
+
+/**
+ * Escape special regex characters to prevent ReDoS attacks
+ */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Validate a URL for profile images
+ * Returns true if URL is valid and from allowed domain, false otherwise
+ */
+function isValidImageUrl(url: string | undefined | null): boolean {
+  if (!url) return true; // null/undefined is valid (no image)
+  
+  try {
+    const parsed = new URL(url);
+    
+    // Must be HTTPS
+    if (parsed.protocol !== "https:") return false;
+    
+    // Must be from allowed domain
+    return ALLOWED_IMAGE_DOMAINS.some(domain => parsed.hostname.endsWith(domain));
+  } catch {
+    return false;
+  }
+}
 
 export interface UpdateProfileData {
   displayName?: string;
@@ -46,6 +80,12 @@ export const userService = {
     // Validate email
     if (!email || !email.includes("@")) {
       throw new Error("Valid email address is required");
+    }
+
+    // Validate password
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.valid) {
+      throw new Error(passwordValidation.errors.join(". "));
     }
 
     // Validate phone number if provided
@@ -194,6 +234,14 @@ export const userService = {
   async updateUserProfile(userId: string, updates: UpdateProfileData) {
     if (!validateObjectId(userId)) return null;
 
+    // Validate image URLs if provided
+    if (updates.photoURL !== undefined && !isValidImageUrl(updates.photoURL)) {
+      throw new Error("Invalid photo URL. Only HTTPS URLs from trusted domains are allowed.");
+    }
+    if (updates.coverPhoto !== undefined && !isValidImageUrl(updates.coverPhoto)) {
+      throw new Error("Invalid cover photo URL. Only HTTPS URLs from trusted domains are allowed.");
+    }
+
     // Filter out undefined values
     const cleanUpdates = Object.fromEntries(
       Object.entries(updates).filter(([_, value]) => value !== undefined)
@@ -229,10 +277,29 @@ export const userService = {
     return User.findById(id).select("-password");
   },
 
-  async getAllUsers() {
-    return User.find()
-      .select(USER_FIELDS)
-      .sort({ email: 1 });
+  async getAllUsers(page: number = 1, limit: number = 50) {
+    const safeLimit = Math.min(Math.max(1, limit), 100); // Between 1 and 100
+    const safePage = Math.max(1, page);
+    const skip = (safePage - 1) * safeLimit;
+
+    const [users, total] = await Promise.all([
+      User.find()
+        .select(USER_FIELDS)
+        .sort({ email: 1 })
+        .skip(skip)
+        .limit(safeLimit),
+      User.countDocuments(),
+    ]);
+
+    return {
+      users,
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
   },
 
   async getAdminUsers() {
@@ -307,14 +374,16 @@ export const userService = {
       return [];
     }
 
-    const searchRegex = new RegExp(query.trim(), "i");
+    // Escape special regex characters to prevent ReDoS attacks
+    const escapedQuery = escapeRegex(query.trim());
+    const searchRegex = new RegExp(escapedQuery, "i");
     
     return User.find({
       displayName: searchRegex,
       isPublicProfile: { $ne: false },
     })
       .select("_id displayName photoURL role coachProfile bio")
-      .limit(limit)
+      .limit(Math.min(limit, 50)) // Cap at 50 results max
       .lean();
   },
 
@@ -345,14 +414,35 @@ export const userService = {
   /**
    * Get all coaches
    */
-  async getAllCoaches() {
-    return User.find({
+  async getAllCoaches(page: number = 1, limit: number = 50) {
+    const safeLimit = Math.min(Math.max(1, limit), 100);
+    const safePage = Math.max(1, page);
+    const skip = (safePage - 1) * safeLimit;
+
+    const filter = {
       role: "coach",
       isPublicProfile: { $ne: false },
-    })
-      .select("_id displayName photoURL bio role coachProfile")
-      .sort({ displayName: 1 })
-      .lean();
+    };
+
+    const [coaches, total] = await Promise.all([
+      User.find(filter)
+        .select("_id displayName photoURL bio role coachProfile")
+        .sort({ displayName: 1 })
+        .skip(skip)
+        .limit(safeLimit)
+        .lean(),
+      User.countDocuments(filter),
+    ]);
+
+    return {
+      coaches,
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
   },
 
   /**

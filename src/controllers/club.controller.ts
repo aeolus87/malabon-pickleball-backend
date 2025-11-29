@@ -7,8 +7,11 @@ import { getUser } from "../middleware/club.middleware";
 export const clubController = {
   async getAllClubs(req: Request, res: Response) {
     try {
-      const clubs = await clubService.getAllClubs();
-      res.json(clubs);
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+      
+      const result = await clubService.getAllClubs(page, limit);
+      res.json(result);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch clubs" });
     }

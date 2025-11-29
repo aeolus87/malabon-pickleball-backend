@@ -5,6 +5,17 @@ const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME;
 const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY;
 const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
 
+// Allowed folders for Cloudinary uploads
+const ALLOWED_FOLDERS = ["profile-photos", "cover-photos", "club-logos", "venue-images"];
+
+/**
+ * Sanitize public_id to only allow safe characters
+ * Only alphanumeric, dashes, and underscores allowed
+ */
+function sanitizePublicId(publicId: string): string {
+  return publicId.replace(/[^a-zA-Z0-9_-]/g, "");
+}
+
 export const uploadController = {
   signUpload(req: Request, res: Response) {
     try {
@@ -14,12 +25,25 @@ export const uploadController = {
 
       const { folder, public_id } = req.body || {};
 
+      // Validate folder against allowlist
+      if (folder && !ALLOWED_FOLDERS.includes(folder)) {
+        return res.status(400).json({ 
+          error: `Invalid folder. Allowed folders: ${ALLOWED_FOLDERS.join(", ")}` 
+        });
+      }
+
+      // Sanitize public_id if provided
+      const sanitizedPublicId = public_id ? sanitizePublicId(public_id) : undefined;
+      if (public_id && sanitizedPublicId !== public_id) {
+        console.warn(`Public ID sanitized: "${public_id}" -> "${sanitizedPublicId}"`);
+      }
+
       const timestamp = Math.floor(Date.now() / 1000);
 
       // Build params to sign (alphabetical order)
       const params: Record<string, string | number> = { timestamp };
       if (folder) params.folder = folder;
-      if (public_id) params.public_id = public_id;
+      if (sanitizedPublicId) params.public_id = sanitizedPublicId;
 
       const toSign = Object.keys(params)
         .sort()
@@ -37,7 +61,7 @@ export const uploadController = {
         api_key: CLOUDINARY_API_KEY,
         cloud_name: CLOUDINARY_CLOUD_NAME,
         folder,
-        public_id,
+        public_id: sanitizedPublicId,
       });
     } catch (error) {
       console.error("Error generating Cloudinary signature:", error);

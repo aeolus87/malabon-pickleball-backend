@@ -1,23 +1,32 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { User } from "../models/user.model";
+import { TokenBlacklist } from "../models/token-blacklist.model";
 import { IUser } from "../types/express";
 
 interface AuthenticatedRequest extends Request {
   user: IUser;
+  token: string;
 }
 
 export const getAuthUser = (req: Request): IUser => (req as AuthenticatedRequest).user;
+export const getAuthToken = (req: Request): string => (req as AuthenticatedRequest).token;
 
 export const authenticateToken = async (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
-    const token = authHeader && authHeader.split(" ")[1];
+  const token = authHeader && authHeader.split(" ")[1];
 
-    if (!token) {
+  if (!token) {
     return res.status(401).json({ error: "Access token required" });
-    }
+  }
 
   try {
+    // Check if token is blacklisted (logged out)
+    const isBlacklisted = await TokenBlacklist.findOne({ token });
+    if (isBlacklisted) {
+      return res.status(401).json({ error: "Token has been invalidated" });
+    }
+
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
 
     // Verify user still exists in database
@@ -44,6 +53,9 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
       coachProfile: user.coachProfile,
       isPublicProfile: user.isPublicProfile !== false,
     };
+    
+    // Store token for logout
+    (req as AuthenticatedRequest).token = token;
 
     next();
   } catch (error) {

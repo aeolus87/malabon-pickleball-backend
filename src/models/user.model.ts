@@ -31,6 +31,16 @@ export interface IUser extends Document {
   verificationCodeExpiry?: Date | null;
   bio: string | null;
   clubs: mongoose.Types.ObjectId[];
+  // Account lockout fields
+  failedLoginAttempts: number;
+  lockUntil?: Date | null;
+  unlockCode?: string | null;
+  unlockCodeExpiry?: Date | null;
+  // Password reset fields
+  passwordResetToken?: string | null;
+  passwordResetExpiry?: Date | null;
+  // Email preferences
+  emailNotifications: boolean;
   // New fields
   role: UserRole;
   coachProfile?: ICoachProfile;
@@ -112,6 +122,39 @@ const userSchema = new Schema<IUser>({
   verificationCodeExpiry: {
     type: Date,
     default: null,
+  },
+  // Account lockout fields
+  failedLoginAttempts: {
+    type: Number,
+    default: 0,
+  },
+  lockUntil: {
+    type: Date,
+    default: null,
+  },
+  unlockCode: {
+    type: String,
+    default: null,
+    select: false,
+  },
+  unlockCodeExpiry: {
+    type: Date,
+    default: null,
+  },
+  // Password reset fields
+  passwordResetToken: {
+    type: String,
+    default: null,
+    select: false,
+  },
+  passwordResetExpiry: {
+    type: Date,
+    default: null,
+  },
+  // Email preferences
+  emailNotifications: {
+    type: Boolean,
+    default: true,
   },
   clubs: [
     {

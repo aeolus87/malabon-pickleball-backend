@@ -16,6 +16,7 @@
     "clean:win": "rmdir /s dist"
   },
   "dependencies": {
+    "@types/helmet": "^0.0.48",
     "@types/jsonwebtoken": "^9.0.9",
     "axios": "^1.10.0",
     "cors": "^2.8.5",
@@ -24,6 +25,7 @@
     "express-rate-limit": "^7.5.0",
     "express-validator": "^7.2.1",
     "google-auth-library": "^8.9.0",
+    "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^7.0.3",
     "nodemailer": "^6.10.0",

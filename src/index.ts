@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import dotenv from "dotenv";
 import path from "path";
 import { createServer } from "http";
@@ -17,6 +19,31 @@ import { IUser } from "./types/express";
 import { initSocketService } from "./services/socket.service";
 import { ServerToClientEvents, ClientToServerEvents } from "./types/socket.types";
 
+// Rate limiters
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // 5 requests per window
+  message: { error: "Too many authentication attempts. Please try again in 15 minutes." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const generalLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 100, // 100 requests per minute
+  message: { error: "Too many requests. Please slow down." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const searchLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30, // 30 requests per minute
+  message: { error: "Too many search requests. Please slow down." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Environment configuration
 const NODE_ENV = process.env.NODE_ENV || "development";
 const isDevelopment = NODE_ENV === "development";
@@ -32,9 +59,18 @@ dotenv.config({ path: path.resolve(process.cwd(), envFile) });
 const app = express();
 const httpServer = createServer(app);
 
+// Security headers
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow loading resources from CDN
+  contentSecurityPolicy: isDevelopment ? false : undefined, // Disable CSP in dev for easier debugging
+}));
+
 // Allow larger request bodies for image uploads
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+// Apply general rate limiter to all routes
+app.use(generalLimiter);
 
 // Set up Socket.IO with CORS
 const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(httpServer, {
@@ -98,7 +134,13 @@ app.use(
   })
 );
 
-// Routes
+// Routes with rate limiting
+app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/register", authLimiter);
+app.use("/api/auth/master-access", authLimiter);
+app.use("/api/auth/verify-email-code", authLimiter);
+app.use("/api/users/search", searchLimiter);
+
 app.use("/api/auth", authRoutes);
 app.use("/api/venues", venueRoutes);
 app.use("/api/clubs", clubRoutes);
