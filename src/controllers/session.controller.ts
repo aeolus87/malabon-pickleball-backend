@@ -109,22 +109,26 @@ export const sessionController = {
   },
 
   /**
-   * Delete a session (admin only)
+   * Delete a session (admin or session coach only)
    */
   async deleteSession(req: Request, res: Response) {
     try {
       const user = getAuthUser(req);
       const { id } = req.params;
 
-      if (!user.isAdmin) {
-        return res.status(403).json({ error: "Only admins can delete sessions" });
+      // Get session first to check ownership
+      const existingSession = await sessionService.getSessionById(id);
+      if (!existingSession) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      // Allow admins or the session's coach to delete
+      const isSessionCoach = existingSession.coachId?._id?.toString() === user.id;
+      if (!user.isAdmin && !isSessionCoach) {
+        return res.status(403).json({ error: "Only admins or the session coach can delete sessions" });
       }
 
       const session = await sessionService.deleteSession(id);
-
-      if (!session) {
-        return res.status(404).json({ error: "Session not found" });
-      }
 
       res.json({ success: true, message: "Session deleted" });
     } catch (error) {
